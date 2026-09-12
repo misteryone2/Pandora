@@ -7,6 +7,9 @@ type Task = {id:string;title:string;done:boolean;createdAt:string};
 type Message = {role:"user"|"pandora";text:string};
 
 const memoryKey="pandora.memory.v2", taskKey="pandora.tasks.v2", chatKey="pandora.chat.v2";
+const makeId = () => typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+  ? crypto.randomUUID()
+  : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function Home(){
   const [tab,setTab]=useState<"chat"|"memory"|"tasks">("chat");
@@ -35,7 +38,7 @@ export default function Home(){
     setMemories(old=>{
       const existing=old.find(m=>m.text.toLowerCase()===fact.toLowerCase());
       if(existing) return old.map(m=>m.id===existing.id?{...m,confidence:Math.min(1,m.confidence+.05)}:m);
-      return [{id:crypto.randomUUID(),text:fact,category:p.includes("prefer")||p.includes("piace")?"Preferenza":"Memoria",confidence:.75,createdAt:new Date().toISOString()},...old];
+      return [{id:makeId(),text:fact,category:p.includes("prefer")||p.includes("piace")?"Preferenza":"Memoria",confidence:.75,createdAt:new Date().toISOString()},...old];
     });
     return `Memorizzato: ${fact}`;
   };
@@ -48,7 +51,7 @@ export default function Home(){
     }
     if(l.startsWith("aggiungi attività ")||l.startsWith("aggiungi attività:")){
       const title=text.replace(/^aggiungi attività\s*: ?/i,"").replace(/^aggiungi attività\s*/i,"").trim();
-      if(title){setTasks(t=>[{id:crypto.randomUUID(),title,done:false,createdAt:new Date().toISOString()},...t]);return `Attività aggiunta: ${title}`;}
+      if(title){setTasks(t=>[{id:makeId(),title,done:false,createdAt:new Date().toISOString()},...t]);return `Attività aggiunta: ${title}`;}
     }
     return "Posso già gestire memoria e attività localmente. Il prossimo modulo collegherà il motore AI e gli strumenti, mantenendo questa memoria come base.";
   };
@@ -80,7 +83,7 @@ export default function Home(){
 
     {tab==="memory" && <section className="panel"><div className="panelhead"><h2>Memoria</h2><span>{memories.length}</span></div>{memories.length===0?<p className="empty">Nessuna memoria. Insegna qualcosa a Pandora dalla chat.</p>:memories.map(m=><article className="memory" key={m.id}><div><b>{m.text}</b><small>{m.category} · {Math.round(m.confidence*100)}% fiducia</small></div><button onClick={()=>setMemories(x=>x.filter(a=>a.id!==m.id))}>×</button></article>)}</section>}
 
-    {tab==="tasks" && <section className="panel"><div className="addtask"><input id="newtask" placeholder="Nuova attività…" onKeyDown={e=>{if(e.key==="Enter"){const v=e.currentTarget.value.trim();if(v){setTasks(t=>[{id:crypto.randomUUID(),title:v,done:false,createdAt:new Date().toISOString()},...t]);e.currentTarget.value=""}}}}/><button onClick={()=>{const el=document.getElementById("newtask") as HTMLInputElement;const v=el.value.trim();if(v){setTasks(t=>[{id:crypto.randomUUID(),title:v,done:false,createdAt:new Date().toISOString()},...t]);el.value=""}}}>Aggiungi</button></div>{tasks.map(t=><label className="task" key={t.id}><input type="checkbox" checked={t.done} onChange={()=>setTasks(x=>x.map(a=>a.id===t.id?{...a,done:!a.done}:a))}/><span className={t.done?"done":""}>{t.title}</span><button onClick={()=>setTasks(x=>x.filter(a=>a.id!==t.id))}>×</button></label>)}</section>}
+    {tab==="tasks" && <section className="panel"><div className="addtask"><input id="newtask" placeholder="Nuova attività…" onKeyDown={e=>{if(e.key==="Enter"){const v=e.currentTarget.value.trim();if(v){setTasks(t=>[{id:makeId(),title:v,done:false,createdAt:new Date().toISOString()},...t]);e.currentTarget.value=""}}}}/><button onClick={()=>{const el=document.getElementById("newtask") as HTMLInputElement;const v=el.value.trim();if(v){setTasks(t=>[{id:makeId(),title:v,done:false,createdAt:new Date().toISOString()},...t]);el.value=""}}}>Aggiungi</button></div>{tasks.map(t=><label className="task" key={t.id}><input type="checkbox" checked={t.done} onChange={()=>setTasks(x=>x.map(a=>a.id===t.id?{...a,done:!a.done}:a))}/><span className={t.done?"done":""}>{t.title}</span><button onClick={()=>setTasks(x=>x.filter(a=>a.id!==t.id))}>×</button></label>)}</section>}
 
     <footer>Pandora v0.2 · memoria sul dispositivo · pronta per il collegamento al Core AI</footer>
   </main>
