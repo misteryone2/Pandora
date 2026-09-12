@@ -1,19 +1,13 @@
-# Pandora Web v0.2
+# Pandora Web v0.2.1
 
-Prima versione usabile da iPhone tramite Safari e installabile sulla Home Screen.
+Versione corretta per GitHub + Vercel e utilizzo da iPhone.
 
-## Deploy rapido con GitHub + Vercel
+## Deploy
+1. Carica **tutti i file di questa cartella** nella root del repository GitHub.
+2. In Vercel importa il repository.
+3. Non impostare un Build Command personalizzato: usa `npm run build`.
+4. Vercel deve usare Node.js 20.9+ (preferibilmente Node 22).
+5. Deploy.
 
-1. Crea un repository GitHub chiamato `pandora`.
-2. Carica tutto il contenuto di questa cartella nella root del repository.
-3. In Vercel: Add New Project -> Import Git Repository -> scegli `pandora` -> Deploy.
-4. Vercel rileva automaticamente Next.js. GitHub/Vercel può creare una nuova preview a ogni push e una production deployment dal branch principale.
-
-## Uso su iPhone
-
-Apri l'URL Vercel in Safari -> Condividi -> Aggiungi a schermata Home.
-
-## Stato
-
-v0.2: memoria locale, attività, chat e apprendimento esplicito.
-Prossimi moduli: AI Gateway, memoria semantica, agent planner, tools, permission manager e autonomia.
+## Importante
+Non inserire chiavi API nel codice frontend o nel repository. Il collegamento al Core AI verrà aggiunto lato server in una versione successiva.
