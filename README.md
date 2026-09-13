@@ -1,13 +1,39 @@
-# Pandora Web v0.2.1
+# Pandora v1.1 — Autonomous Core
 
-Versione corretta per GitHub + Vercel e utilizzo da iPhone.
+Pandora è stata trasformata in un'architettura **local-first**: l'interfaccia web non usa OpenAI o altri servizi AI esterni. Il cervello operativo è `core/server.mjs`, che salva memoria, attività, obiettivi, conversazioni e audit in `data/pandora.json`.
 
-## Deploy
-1. Carica **tutti i file di questa cartella** nella root del repository GitHub.
-2. In Vercel importa il repository.
-3. Non impostare un Build Command personalizzato: usa `npm run build`.
-4. Vercel deve usare Node.js 20.9+ (preferibilmente Node 22).
-5. Deploy.
+## Avvio del Core
 
-## Importante
-Non inserire chiavi API nel codice frontend o nel repository. Il collegamento al Core AI verrà aggiunto lato server in una versione successiva.
+Requisito: Node.js >= 20.9.
+
+```bash
+./start-pandora-core.sh
+```
+
+Il Core ascolta su `http://localhost:8787`.
+
+## Avvio dell'interfaccia
+
+Dalla root:
+
+```bash
+npm install
+npm run dev
+```
+
+Per usare l'interfaccia sullo stesso computer, il default `PANDORA_CORE_URL=http://127.0.0.1:8787` è sufficiente.
+
+Per un iPhone sulla stessa rete, il browser deve poter raggiungere il Core. Imposta `PANDORA_CORE_URL` sull'IP locale del computer che esegue il Core, ad esempio `http://192.168.1.10:8787`.
+
+## API locale
+
+- `GET /health`
+- `GET /state`
+- `POST /chat` `{ "text": "..." }`
+- `POST /memory` `{ "text": "...", "category": "..." }`
+- `POST /tasks` `{ "title": "..." }`
+- `POST /autonomy` `{ "enabled": true }`
+
+## Principio architetturale
+
+Nessuna chiave OpenAI è necessaria. Nessun dato fondamentale deve vivere su un provider esterno. Il passo successivo è sostituire/affiancare `localCognition()` con un modello linguistico locale (GGUF/llama.cpp o runtime equivalente), mantenendo invariati memoria, strumenti, permessi e ciclo autonomo.
