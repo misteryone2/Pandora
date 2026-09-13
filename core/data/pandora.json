@@ -1,1 +1,192 @@
-
+{
+  "version": 2,
+  "createdAt": "2026-09-13T08:41:25.814Z",
+  "updatedAt": "2026-09-13T08:41:55.852Z",
+  "autonomy": true,
+  "memories": [],
+  "tasks": [
+    {
+      "id": "c2c7e44b-3207-45d5-97ee-05a66c724509",
+      "title": "Test autonomia",
+      "done": false,
+      "source": "api",
+      "priority": 90,
+      "dueAt": null,
+      "attempts": 2,
+      "lastRunAt": "2026-09-13T08:41:55.852Z",
+      "createdAt": "2026-09-13T08:41:54.940Z",
+      "updatedAt": "2026-09-13T08:41:55.852Z"
+    },
+    {
+      "id": "634b5ef9-2be3-46a4-8fc6-1f413598e521",
+      "title": "Test autonomia",
+      "done": false,
+      "source": "api",
+      "priority": 90,
+      "dueAt": null,
+      "attempts": 2,
+      "lastRunAt": "2026-09-13T08:41:31.830Z",
+      "createdAt": "2026-09-13T08:41:31.517Z",
+      "updatedAt": "2026-09-13T08:41:31.830Z"
+    },
+    {
+      "id": "e202966f-4ded-4be7-99d7-70f6a0d09503",
+      "title": "Test autonomia",
+      "done": false,
+      "source": "api",
+      "priority": 90,
+      "dueAt": null,
+      "attempts": 2,
+      "lastRunAt": "2026-09-13T08:41:26.827Z",
+      "createdAt": "2026-09-13T08:41:26.166Z",
+      "updatedAt": "2026-09-13T08:41:26.827Z"
+    }
+  ],
+  "goals": [],
+  "messages": [],
+  "audit": [
+    {
+      "id": "c0d3a52d-7a93-4205-940e-94766e67ef58",
+      "type": "task",
+      "text": "Attività creata: Test autonomia",
+      "createdAt": "2026-09-13T08:41:54.940Z",
+      "meta": {
+        "taskId": "c2c7e44b-3207-45d5-97ee-05a66c724509"
+      }
+    },
+    {
+      "id": "82b453bb-854c-486a-85a6-5f77d51577fb",
+      "type": "task",
+      "text": "Attività creata: Test autonomia",
+      "createdAt": "2026-09-13T08:41:31.518Z",
+      "meta": {
+        "taskId": "634b5ef9-2be3-46a4-8fc6-1f413598e521"
+      }
+    },
+    {
+      "id": "73e3fe1e-17ba-48fc-be91-43c5bcb90f35",
+      "type": "task",
+      "text": "Attività creata: Test autonomia",
+      "createdAt": "2026-09-13T08:41:26.166Z",
+      "meta": {
+        "taskId": "e202966f-4ded-4be7-99d7-70f6a0d09503"
+      }
+    }
+  ],
+  "observations": [
+    {
+      "id": "d2db1afa-575a-4429-b791-50a7e6e2e1ba",
+      "type": "task_review",
+      "text": "Attività analizzata: Test autonomia",
+      "createdAt": "2026-09-13T08:41:55.852Z",
+      "meta": {
+        "taskId": "c2c7e44b-3207-45d5-97ee-05a66c724509",
+        "due": false
+      }
+    },
+    {
+      "id": "a6e2b4bd-7503-457c-98fa-b92ff92db721",
+      "type": "task_review",
+      "text": "Attività analizzata: Test autonomia",
+      "createdAt": "2026-09-13T08:41:55.852Z",
+      "meta": {
+        "taskId": "c2c7e44b-3207-45d5-97ee-05a66c724509",
+        "due": false
+      }
+    },
+    {
+      "id": "cdeac265-2faf-4844-9bab-0e41e2bfb704",
+      "type": "task_review",
+      "text": "Attività analizzata: Test autonomia",
+      "createdAt": "2026-09-13T08:41:31.830Z",
+      "meta": {
+        "taskId": "634b5ef9-2be3-46a4-8fc6-1f413598e521",
+        "due": false
+      }
+    },
+    {
+      "id": "5fc0c19c-57b1-4ba4-8b59-42f4c806b9b7",
+      "type": "task_review",
+      "text": "Attività analizzata: Test autonomia",
+      "createdAt": "2026-09-13T08:41:31.830Z",
+      "meta": {
+        "taskId": "634b5ef9-2be3-46a4-8fc6-1f413598e521",
+        "due": false
+      }
+    },
+    {
+      "id": "ebdd8954-abbd-4543-a0e6-8ff667b3bacb",
+      "type": "task_review",
+      "text": "Attività analizzata: Test autonomia",
+      "createdAt": "2026-09-13T08:41:26.827Z",
+      "meta": {
+        "taskId": "e202966f-4ded-4be7-99d7-70f6a0d09503",
+        "due": false
+      }
+    },
+    {
+      "id": "92bd4fdd-c2cf-4435-bc4b-36d91227ad94",
+      "type": "task_review",
+      "text": "Attività analizzata: Test autonomia",
+      "createdAt": "2026-09-13T08:41:26.827Z",
+      "meta": {
+        "taskId": "e202966f-4ded-4be7-99d7-70f6a0d09503",
+        "due": false
+      }
+    }
+  ],
+  "learning": [],
+  "queue": [
+    {
+      "id": "6b93aef9-cd52-4ab0-8658-dfff8e4872e5",
+      "type": "task_review",
+      "payload": {
+        "taskId": "e202966f-4ded-4be7-99d7-70f6a0d09503",
+        "key": "task:e202966f-4ded-4be7-99d7-70f6a0d09503"
+      },
+      "priority": 80,
+      "runAt": 1789289186827,
+      "source": "system",
+      "attempts": 0,
+      "createdAt": "2026-09-13T08:41:26.827Z"
+    },
+    {
+      "id": "208c8b54-dc31-410a-b33c-c36db8fd1bb6",
+      "type": "task_review",
+      "payload": {
+        "taskId": "634b5ef9-2be3-46a4-8fc6-1f413598e521",
+        "key": "task:634b5ef9-2be3-46a4-8fc6-1f413598e521"
+      },
+      "priority": 80,
+      "runAt": 1789289191830,
+      "source": "system",
+      "attempts": 0,
+      "createdAt": "2026-09-13T08:41:31.830Z"
+    },
+    {
+      "id": "b9ca0328-f5d7-4def-bf6b-2db71513a0da",
+      "type": "task_review",
+      "payload": {
+        "taskId": "c2c7e44b-3207-45d5-97ee-05a66c724509",
+        "key": "task:c2c7e44b-3207-45d5-97ee-05a66c724509"
+      },
+      "priority": 80,
+      "runAt": 1789289215852,
+      "source": "system",
+      "attempts": 0,
+      "createdAt": "2026-09-13T08:41:55.852Z"
+    }
+  ],
+  "autonomyStats": {
+    "cycles": 30,
+    "actions": 6,
+    "skipped": 0,
+    "lastCycleAt": "2026-09-13T08:41:55.852Z",
+    "lastActionAt": "2026-09-13T08:41:55.852Z"
+  },
+  "permissions": {
+    "safeLocal": "auto",
+    "external": "confirm",
+    "destructive": "confirm"
+  }
+}
