@@ -1,8 +1,28 @@
-# Pandora v1.1 — Autonomous Core
+# Pandora v1.2 — Autonomous Core
 
-Pandora è stata trasformata in un'architettura **local-first**: l'interfaccia web non usa OpenAI o altri servizi AI esterni. Il cervello operativo è `core/server.mjs`, che salva memoria, attività, obiettivi, conversazioni e audit in `data/pandora.json`.
+Pandora è **local-first**: il ciclo autonomo non dipende da OpenAI, Anthropic, Google o altri servizi AI esterni.
 
-## Avvio del Core
+## Ciclo autonomo
+
+`evento → memoria → valutazione → pianificazione → permessi → azione → osservazione → apprendimento`
+
+In questa versione il ciclo è realmente operativo per le azioni locali sicure già supportate.
+
+### Efficienza
+
+Il Core usa una **coda persistente event-driven** invece di eseguire un polling continuo ogni pochi secondi:
+
+- se non c'è lavoro, il Core resta inattivo;
+- un nuovo evento risveglia immediatamente il ciclo;
+- gli eventi futuri risvegliano il Core esattamente quando servono;
+- una manutenzione leggera viene eseguita periodicamente per recuperare lavori rimasti dopo un riavvio;
+- ogni ciclo ha un limite di passi per evitare loop infiniti;
+- le azioni sono idempotenti dove possibile e hanno cooldown;
+- gli errori vengono ritentati con backoff;
+- la coda e le statistiche sono persistenti;
+- tutte le azioni vengono registrate nell'audit log.
+
+## Avvio
 
 Requisito: Node.js >= 20.9.
 
@@ -10,30 +30,27 @@ Requisito: Node.js >= 20.9.
 ./start-pandora-core.sh
 ```
 
-Il Core ascolta su `http://localhost:8787`.
+Core: `http://localhost:8787`
 
-## Avvio dell'interfaccia
+## API
 
-Dalla root:
-
-```bash
-npm install
-npm run dev
-```
-
-Per usare l'interfaccia sullo stesso computer, il default `PANDORA_CORE_URL=http://127.0.0.1:8787` è sufficiente.
-
-Per un iPhone sulla stessa rete, il browser deve poter raggiungere il Core. Imposta `PANDORA_CORE_URL` sull'IP locale del computer che esegue il Core, ad esempio `http://192.168.1.10:8787`.
-
-## API locale
-
-- `GET /health`
-- `GET /state`
+- `GET /health` — salute, coda e statistiche
+- `GET /state` — stato persistente
+- `GET /autonomy` — stato del ciclo autonomo
 - `POST /chat` `{ "text": "..." }`
 - `POST /memory` `{ "text": "...", "category": "..." }`
-- `POST /tasks` `{ "title": "..." }`
+- `POST /tasks` `{ "title": "...", "priority": 80, "dueAt": "..." }`
 - `POST /autonomy` `{ "enabled": true }`
+- `POST /autonomy/wake` — risveglio manuale del ciclo
 
-## Principio architetturale
+## Dati
 
-Nessuna chiave OpenAI è necessaria. Nessun dato fondamentale deve vivere su un provider esterno. Il passo successivo è sostituire/affiancare `localCognition()` con un modello linguistico locale (GGUF/llama.cpp o runtime equivalente), mantenendo invariati memoria, strumenti, permessi e ciclo autonomo.
+La memoria vive in `data/pandora.json`. Il salvataggio viene effettuato con scrittura temporanea + rename per ridurre il rischio di corruzione durante uno spegnimento.
+
+## Interfaccia iPhone
+
+La PWA interroga il Core tramite le API Next.js e mostra lo stato del nucleo. Il toggle Autonomia controlla direttamente il Core.
+
+## Prossimo livello
+
+Il ciclo è ora la base dell'agente. Il passo successivo è collegare un **LLM eseguito localmente** al planner, mantenendo invariati memoria, coda, permessi, audit e autonomia. Il modello sarà un componente sostituibile e non un servizio AI esterno obbligatorio.
