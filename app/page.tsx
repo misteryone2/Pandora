@@ -33,6 +33,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("locale");
   const [hydrated, setHydrated] = useState(false);
+  const [coreOnline, setCoreOnline] = useState(false);
+  const [coreStats, setCoreStats] = useState<{cycles:number; actions:number; queue:number}>({cycles:0, actions:0, queue:0});
 
   useEffect(() => {
     try {
@@ -57,6 +59,14 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof navigator !== "undefined" && "serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const sync = async () => {
+      try { const r = await fetch("/api/core/autonomy", { cache: "no-store" }); const d = await r.json(); if (!alive) return; setCoreOnline(Boolean(d.ok)); if (d.ok) { setCoreStats({ cycles: d.stats?.cycles || 0, actions: d.stats?.actions || 0, queue: d.queue || 0 }); setAutonomy(Boolean(d.autonomy)); } } catch { if (alive) setCoreOnline(false); }
+    };
+    sync(); const timer = window.setInterval(sync, 15000); return () => { alive = false; window.clearInterval(timer); };
   }, []);
 
   const log = (type: string, text: string) => setActivity(a => [{ id: makeId(), type, text, createdAt: now() }, ...a].slice(0, 100));
@@ -144,7 +154,7 @@ export default function Home() {
   return <main>
     <header>
       <div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div>
-      <div className="header-right"><span className={`status ${mode === "ai" ? "ai" : ""}`}>● {mode === "ai" ? "Core locale" : "locale"}</span><span className="version">v1.1</span></div>
+      <div className="header-right"><span className={`status ${coreOnline ? "ai" : ""}`}>● {coreOnline ? "Core locale" : "Core offline"}</span><span className="version">v1.2</span></div>
     </header>
 
     <section className="hero">
@@ -171,13 +181,13 @@ export default function Home() {
     {tab === "activity" && <section className="panel"><div className="panelhead"><div><small>AUDIT LOG</small><h2>Registro</h2></div><span>{activity.length}</span></div>{lastActivity && <div className="last-action"><span>ULTIMA AZIONE</span><b>{lastActivity.text}</b></div>}{activity.length === 0 ? <p className="empty">Nessuna attività registrata.</p> : activity.map(a => <div className="log" key={a.id}><i>{a.type}</i><span>{a.text}</span><time>{new Date(a.createdAt).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</time></div>)}</section>}
 
     {tab === "settings" && <section className="panel settings"><div className="panelhead"><div><small>CONTROL PLANE</small><h2>Impostazioni</h2></div></div>
-      <div className="setting"><div><b>Autonomia</b><span>Consente a Pandora di applicare automaticamente le azioni locali sicure.</span></div><button className={`switch ${autonomy ? "on" : ""}`} onClick={() => { setAutonomy(v => !v); log("sistema", `Autonomia ${!autonomy ? "attivata" : "messa in pausa"}`); }}><span/></button></div>
+      <div className="setting"><div><b>Autonomia</b><span>Consente a Pandora di applicare automaticamente le azioni locali sicure. {coreOnline ? `Cicli: ${coreStats.cycles} · azioni: ${coreStats.actions} · coda: ${coreStats.queue}.` : "Core non raggiungibile: il controllo locale resta disponibile."}</span></div><button className={`switch ${autonomy ? "on" : ""}`} onClick={async () => { const next=!autonomy; setAutonomy(next); log("sistema", `Autonomia ${next ? "attivata" : "messa in pausa"}`); try { await fetch("/api/core/autonomy", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({enabled:next}) }); } catch {} }}><span/></button></div>
       <div className="setting"><div><b>Core locale</b><span>Pandora Core gira sul tuo computer/server. Stato corrente: <strong>{mode === "ai" ? "collegato" : "non rilevato"}</strong>.</span></div><code>PANDORA_CORE_URL</code></div>
       <div className="danger"><div><b>Azzeramento locale</b><span>Cancella memoria, attività, conversazioni e registro salvati su questo dispositivo.</span></div><button onClick={clearAll}>Cancella dati</button></div>
-      <div className="architecture"><b>Architettura v1.1</b><p>iPhone/PWA → API server-side → Core locale → memoria locale → registro delle azioni.</p><small>La PWA può funzionare senza API; con OPENAI_API_KEY diventa un'interfaccia al Core locale remoto.</small></div>
+      <div className="architecture"><b>Architettura v1.2</b><p>iPhone/PWA → API → Core locale → coda eventi → planner → azioni sicure → osservazioni → memoria.</p><small>Il ciclo autonomo è event-driven: nessun polling continuo. Il Core dorme quando non c’è lavoro e si risveglia alla scadenza di un evento o di una manutenzione.</small></div>
     </section>}
 
-    <footer><span>Pandora v1.1</span><span>·</span><span>local-first</span><span>·</span><span>API key server-side</span></footer>
+    <footer><span>Pandora v1.2</span><span>·</span><span>local-first</span><span>·</span><span>autonomous core</span></footer>
   </main>;
 }
 
