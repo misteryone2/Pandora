@@ -1,21 +1,339 @@
 {
   "version": 3,
   "createdAt": null,
-  "updatedAt": null,
+  "updatedAt": "2026-09-14T06:46:14.867Z",
   "autonomy": true,
   "memories": [],
   "tasks": [],
   "goals": [],
-  "messages": [],
-  "audit": [],
+  "messages": [
+    {
+      "id": "4c3fca44-0209-4afd-a1e1-87b7aa8aa3b7",
+      "role": "user",
+      "text": "ciao",
+      "createdAt": "2026-09-14T06:45:37.855Z"
+    },
+    {
+      "id": "1119e287-b20a-4ff0-810d-4fc0f88a8992",
+      "role": "pandora",
+      "text": "Ciao! Sono qui. Dimmi cosa vuoi fare e proverò a gestirlo localmente.",
+      "createdAt": "2026-09-14T06:45:37.868Z",
+      "mode": "deterministic",
+      "model": null
+    },
+    {
+      "id": "82be2721-af37-41dc-88a4-eb973bfc940b",
+      "role": "user",
+      "text": "cosa puoi fare",
+      "createdAt": "2026-09-14T06:45:38.471Z"
+    },
+    {
+      "id": "19d3cd44-9f63-4d1e-9249-aedcf56b9791",
+      "role": "pandora",
+      "text": "Sono Pandora Core, locale. Ho 0 memorie, 0 attività aperte e autonomia attiva. Il ciclo autonomo è operativo.",
+      "createdAt": "2026-09-14T06:45:38.471Z",
+      "mode": "deterministic",
+      "model": null
+    },
+    {
+      "id": "c031795c-c4f4-470b-b778-844b8fc78874",
+      "role": "user",
+      "text": "perché non rispondi",
+      "createdAt": "2026-09-14T06:45:39.158Z"
+    },
+    {
+      "id": "05741855-5299-4bef-b3dc-a99ab6857677",
+      "role": "pandora",
+      "text": "Ho ricevuto: “perché non rispondi”. Il cervello locale non è disponibile in questo momento, quindi non invento una risposta: posso comunque registrare memoria, attività e lavori sicuri.",
+      "createdAt": "2026-09-14T06:45:39.158Z",
+      "mode": "deterministic",
+      "model": null
+    },
+    {
+      "id": "696761d0-9198-4869-98a8-d397d658514e",
+      "role": "user",
+      "text": "grazie",
+      "createdAt": "2026-09-14T06:45:39.784Z"
+    },
+    {
+      "id": "aa6d8f87-dd76-4267-86bb-43e13da7d73d",
+      "role": "pandora",
+      "text": "Di nulla. Possiamo continuare da qui.",
+      "createdAt": "2026-09-14T06:45:39.784Z",
+      "mode": "deterministic",
+      "model": null
+    },
+    {
+      "id": "9a84610e-84dc-4bde-8af6-a423e0116a1f",
+      "role": "user",
+      "text": "raccontami una cosa",
+      "createdAt": "2026-09-14T06:45:40.462Z"
+    },
+    {
+      "id": "c732c6c8-dd76-4a35-acc3-5a2151dc414d",
+      "role": "pandora",
+      "text": "Ho ricevuto: “raccontami una cosa”. Il cervello locale non è disponibile in questo momento, quindi non invento una risposta: posso comunque registrare memoria, attività e lavori sicuri.",
+      "createdAt": "2026-09-14T06:45:40.462Z",
+      "mode": "deterministic",
+      "model": null
+    },
+    {
+      "id": "8df5e070-9ac7-4511-917e-52fc43cc6fb5",
+      "role": "user",
+      "text": "ciao",
+      "createdAt": "2026-09-14T06:46:01.994Z"
+    },
+    {
+      "id": "946e0e3f-b3cd-4ad4-98e3-2ad5bb87a8ca",
+      "role": "pandora",
+      "text": "Ciao! Sono qui. Dimmi cosa vuoi fare e proverò a gestirlo localmente.",
+      "createdAt": "2026-09-14T06:46:01.996Z",
+      "mode": "deterministic",
+      "model": null
+    },
+    {
+      "id": "f64ea4a5-518f-43d1-9d91-ebd7d49f45cd",
+      "role": "user",
+      "text": "cosa puoi fare",
+      "createdAt": "2026-09-14T06:46:02.653Z"
+    },
+    {
+      "id": "ada4357a-73fe-404a-85a5-a6b0e3859821",
+      "role": "pandora",
+      "text": "Sono Pandora Core, locale. Ho 0 memorie, 0 attività aperte e autonomia attiva. Il ciclo autonomo è operativo.",
+      "createdAt": "2026-09-14T06:46:02.653Z",
+      "mode": "deterministic",
+      "model": null
+    },
+    {
+      "id": "88071c60-f29f-4023-883d-c88615a118e1",
+      "role": "user",
+      "text": "perché non rispondi",
+      "createdAt": "2026-09-14T06:46:03.238Z"
+    },
+    {
+      "id": "abb2b20a-ab1e-4713-ab89-89653a839be1",
+      "role": "pandora",
+      "text": "Ho ricevuto: “perché non rispondi”. Il cervello locale non è disponibile in questo momento, quindi non invento una risposta: posso comunque registrare memoria, attività e lavori sicuri.",
+      "createdAt": "2026-09-14T06:46:03.239Z",
+      "mode": "deterministic",
+      "model": null
+    },
+    {
+      "id": "5197f00e-5eb7-4af7-beee-532d711ef005",
+      "role": "user",
+      "text": "grazie",
+      "createdAt": "2026-09-14T06:46:03.878Z"
+    },
+    {
+      "id": "ba6345bc-0c35-4f63-9221-8cb3f8d0f5cc",
+      "role": "pandora",
+      "text": "Di nulla. Possiamo continuare da qui.",
+      "createdAt": "2026-09-14T06:46:03.878Z",
+      "mode": "deterministic",
+      "model": null
+    },
+    {
+      "id": "93226ed0-7c56-4811-aa59-b9ab9277e428",
+      "role": "user",
+      "text": "raccontami una cosa",
+      "createdAt": "2026-09-14T06:46:04.485Z"
+    },
+    {
+      "id": "f70a0db7-abdd-4d58-af3e-a965cde5093f",
+      "role": "pandora",
+      "text": "Ho ricevuto: “raccontami una cosa”. Il cervello locale non è disponibile in questo momento, quindi non invento una risposta: posso comunque registrare memoria, attività e lavori sicuri.",
+      "createdAt": "2026-09-14T06:46:04.485Z",
+      "mode": "deterministic",
+      "model": null
+    },
+    {
+      "id": "5b6b764e-a358-43b8-a690-2383f57b28c2",
+      "role": "user",
+      "text": "ciao",
+      "createdAt": "2026-09-14T06:46:14.866Z"
+    },
+    {
+      "id": "45e2757f-b9f4-42aa-ae32-dedcaebaba67",
+      "role": "pandora",
+      "text": "Ciao! Sono qui. Dimmi cosa vuoi fare e proverò a gestirlo localmente.",
+      "createdAt": "2026-09-14T06:46:14.867Z",
+      "mode": "deterministic",
+      "model": null
+    }
+  ],
+  "audit": [
+    {
+      "id": "1ebd91b8-3c0a-4a4c-b400-4a156f0687de",
+      "type": "conversation",
+      "text": "Richiesta: ciao",
+      "createdAt": "2026-09-14T06:46:14.867Z",
+      "meta": {
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "102f10ca-522c-4970-aee4-49c3e73d69ce",
+      "type": "llm_fallback",
+      "text": "LLM locale non disponibile: local_llm_unavailable",
+      "createdAt": "2026-09-14T06:46:14.867Z",
+      "meta": {}
+    },
+    {
+      "id": "031c81f9-2f73-4a7c-8a78-22c21a092c7f",
+      "type": "conversation",
+      "text": "Richiesta: raccontami una cosa",
+      "createdAt": "2026-09-14T06:46:04.485Z",
+      "meta": {
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "44216766-4803-4942-8ea4-faf2b02a03ed",
+      "type": "llm_fallback",
+      "text": "LLM locale non disponibile: local_llm_unavailable",
+      "createdAt": "2026-09-14T06:46:04.485Z",
+      "meta": {}
+    },
+    {
+      "id": "5366d2b9-1887-432f-ae58-f2cd1f22489c",
+      "type": "conversation",
+      "text": "Richiesta: grazie",
+      "createdAt": "2026-09-14T06:46:03.878Z",
+      "meta": {
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "fe793cee-c846-4fbc-b7d2-2efbd2531586",
+      "type": "llm_fallback",
+      "text": "LLM locale non disponibile: local_llm_unavailable",
+      "createdAt": "2026-09-14T06:46:03.878Z",
+      "meta": {}
+    },
+    {
+      "id": "d116ccfd-0709-4943-9819-62e27687e26a",
+      "type": "conversation",
+      "text": "Richiesta: perché non rispondi",
+      "createdAt": "2026-09-14T06:46:03.239Z",
+      "meta": {
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "3d7f6043-4fe6-45f4-a55b-9be527552c30",
+      "type": "llm_fallback",
+      "text": "LLM locale non disponibile: local_llm_unavailable",
+      "createdAt": "2026-09-14T06:46:03.239Z",
+      "meta": {}
+    },
+    {
+      "id": "b5d77bf1-1102-40c1-bc13-542c9bc1344c",
+      "type": "conversation",
+      "text": "Richiesta: cosa puoi fare",
+      "createdAt": "2026-09-14T06:46:02.654Z",
+      "meta": {
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "1832425a-de18-4a82-ae94-2d927d2051c2",
+      "type": "conversation",
+      "text": "Richiesta: ciao",
+      "createdAt": "2026-09-14T06:46:01.996Z",
+      "meta": {
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "d2dd3415-82d9-4c68-b4b0-2c18a1d7de23",
+      "type": "llm_fallback",
+      "text": "LLM locale non disponibile: local_llm_unavailable",
+      "createdAt": "2026-09-14T06:46:01.996Z",
+      "meta": {}
+    },
+    {
+      "id": "be8ba020-eac3-497c-9ccf-67a590c47c23",
+      "type": "conversation",
+      "text": "Richiesta: raccontami una cosa",
+      "createdAt": "2026-09-14T06:45:40.462Z",
+      "meta": {
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "5292b90d-8b4c-4332-ac11-d59b53031617",
+      "type": "llm_fallback",
+      "text": "LLM locale non disponibile: local_llm_unavailable",
+      "createdAt": "2026-09-14T06:45:40.462Z",
+      "meta": {}
+    },
+    {
+      "id": "627c5b22-1bb8-407f-86ad-bec48169289d",
+      "type": "conversation",
+      "text": "Richiesta: grazie",
+      "createdAt": "2026-09-14T06:45:39.784Z",
+      "meta": {
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "45a6552f-4a93-48fc-8aa3-3c79a8399bd9",
+      "type": "llm_fallback",
+      "text": "LLM locale non disponibile: local_llm_unavailable",
+      "createdAt": "2026-09-14T06:45:39.784Z",
+      "meta": {}
+    },
+    {
+      "id": "7d2bb801-6419-46d4-b9e7-fd28ed02dd57",
+      "type": "conversation",
+      "text": "Richiesta: perché non rispondi",
+      "createdAt": "2026-09-14T06:45:39.158Z",
+      "meta": {
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "abb1ff66-19e2-4573-93ff-701796d980e9",
+      "type": "llm_fallback",
+      "text": "LLM locale non disponibile: local_llm_unavailable",
+      "createdAt": "2026-09-14T06:45:39.158Z",
+      "meta": {}
+    },
+    {
+      "id": "58fba08f-9e3e-4f78-bbc1-605f51fe6089",
+      "type": "conversation",
+      "text": "Richiesta: cosa puoi fare",
+      "createdAt": "2026-09-14T06:45:38.471Z",
+      "meta": {
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "d27fec02-cf84-4dd6-ac68-911ea5eebe0f",
+      "type": "conversation",
+      "text": "Richiesta: ciao",
+      "createdAt": "2026-09-14T06:45:37.868Z",
+      "meta": {
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "a43be4d2-e5e3-433a-aa73-f4b5b8daecdc",
+      "type": "llm_fallback",
+      "text": "LLM locale non disponibile: fetch failed",
+      "createdAt": "2026-09-14T06:45:37.868Z",
+      "meta": {}
+    }
+  ],
   "observations": [],
   "learning": [],
   "queue": [],
   "autonomyStats": {
-    "cycles": 0,
+    "cycles": 8,
     "actions": 0,
     "skipped": 0,
-    "lastCycleAt": null,
+    "lastCycleAt": "2026-09-14T06:46:03.879Z",
     "lastActionAt": null
   },
   "permissions": {
