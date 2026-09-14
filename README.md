@@ -1,31 +1,30 @@
-# Pandora v1.5.1 — Phone First
+# Pandora v1.6 — Phone First / Active Learning
 
-Pandora v1.5.1 è stata riprogettata per poter essere usata **solo da iPhone**, senza Pandora Core su un computer e senza Ollama/API AI obbligatori.
+Pandora è una PWA progettata per essere utilizzata direttamente da iPhone senza un PC, un server locale o un'API AI cloud.
 
-## Cosa funziona direttamente dal telefono
+## Cosa aggiunge v1.6
 
-- chat locale
-- memoria persistente
-- attività e completamento
-- registro/audit locale
-- autonomia locale mentre la PWA è attiva
-- Service Worker per rendere l'app installabile come PWA
-- nessun indirizzo IP da configurare
-- nessun server personale obbligatorio
-- nessuna API AI cloud obbligatoria
+- **Risposte contestuali**: Pandora usa le memorie pertinenti e gli ultimi messaggi per evitare risposte isolate.
+- **Apprendimento attivo locale**: riconosce segnali espliciti o forti come preferenze, vincoli, profilo e possibili obiettivi.
+- **Confidenza**: ogni apprendimento ha una confidenza e può essere rinforzato quando la stessa informazione ricompare.
+- **Memoria persistente**: dati, conversazioni, attività e apprendimenti sono salvati localmente sul dispositivo.
+- **Registro dell'apprendimento**: è possibile vedere cosa Pandora ha imparato e con quale confidenza.
+- **Autonomia phone-first**: controlla le attività mentre la PWA è attiva. iOS può sospendere JavaScript quando l'app è in background o chiusa.
+- **Nessun cervello cloud**: nessuna chiamata a OpenAI, ChatGPT o altri servizi AI esterni.
 
-## Limite importante di iOS
+## Esempi
 
-Una PWA non può essere garantita come processo autonomo continuo quando viene sospesa o chiusa da iOS. Per questo l'autonomia di questa versione lavora quando Pandora è attiva/in primo piano. Non viene spacciata per un demone in background che iOS non consentirebbe.
+Puoi scrivere normalmente:
 
-## Sviluppo da solo iPhone
+- `Mi piace molto cucinare con la friggitrice ad aria.`
+- `Non voglio usare un computer per Pandora.`
+- `Vorrei costruire una serra sul balcone.`
+- `Devo ricordarmi di controllare le piante.`
 
-Il progetto può essere modificato tramite un editor GitHub/web dal telefono e pubblicato su un hosting statico/Next.js. Non è necessario avere un PC per usare Pandora.
+Pandora può riconoscere il segnale, registrarlo localmente e usarlo nelle conversazioni successive.
 
-## Modello generativo locale
+Per una memoria esplicita puoi sempre usare `Ricorda che ...`.
 
-Il modello generativo non è una dipendenza di v1.5.1. L'architettura lascia un punto di estensione per un modello eseguito localmente nel browser (WebGPU/WASM) in una versione successiva. Questo mantiene il requisito: **nessun altro sistema AI cloud deve essere il cervello di Pandora**.
+## Limite importante
 
-
-### v1.5.1
-Corretto un errore TypeScript nella gestione dei messaggi della chat: il messaggio di risposta di Pandora viene ora tipizzato esplicitamente come `Message`, evitando l'inferenza di `role` come `string`.
+Questa versione implementa un **motore cognitivo locale deterministico**. Non è ancora un LLM generativo eseguito sul telefono. La struttura è stata preparata affinché un modello locale on-device possa essere aggiunto in seguito senza rendere il cloud una dipendenza.
