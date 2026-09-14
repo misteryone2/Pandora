@@ -71,7 +71,7 @@ export default function Home(){
     return `Ho ricevuto: “${text}”. Posso agire localmente su memoria e attività. Per ora il cervello semantico generativo non è necessario per le funzioni di base: questa versione evita completamente dipendenze da un computer o da un'API AI esterna.`;
   };
 
-  const send=async()=>{const text=input.trim();if(!text||loading)return;setLoading(true);const u:Message={id:id(),role:'user',text,createdAt:iso()};setStore(s=>({...s,messages:[...s.messages,u].slice(-100)}));setInput('');log('conversazione',`Messaggio ricevuto: ${text.slice(0,80)}`);await new Promise(r=>setTimeout(r,120));const reply=answer(text);setStore(s=>({...s,messages:[...s.messages,{id:id(),role:'pandora',text:reply,createdAt:iso(),mode:'phone-local'}].slice(-100)}));setLoading(false)};
+  const send=async()=>{const text=input.trim();if(!text||loading)return;setLoading(true);const u:Message={id:id(),role:'user',text,createdAt:iso()};setStore(s=>({...s,messages:[...s.messages,u].slice(-100)}));setInput('');log('conversazione',`Messaggio ricevuto: ${text.slice(0,80)}`);await new Promise(r=>setTimeout(r,120));const reply=answer(text);const p:Message={id:id(),role:'pandora',text:reply,createdAt:iso(),mode:'phone-local'}; setStore(s=>({...s,messages:[...s.messages,p].slice(-100)}));setLoading(false)};
   const pending=useMemo(()=>store.tasks.filter(t=>!t.done).length,[store.tasks]);
   const completed=store.tasks.length-pending;
   const clearAll=()=>{if(confirm('Eliminare memoria, attività, conversazioni e registro locali?')){const s={...empty,messages:[]};setStore(s)}};
