@@ -7,20 +7,21 @@ type Memory = { id:string; text:string; category:string; confidence:number; crea
 type Task = { id:string; title:string; done:boolean; createdAt:string; priority:number };
 type Message = { id:string; role:'user'|'pandora'; text:string; createdAt:string; mode?:string };
 type Activity = { id:string; type:string; text:string; createdAt:string };
-type Learning = { id:string; text:string; kind:string; confidence:number; createdAt:string };
-type Store = { memories:Memory[]; tasks:Task[]; messages:Message[]; activity:Activity[]; learning:Learning[]; autonomy:boolean; cycles:number; actions:number };
+type Learning = { id:string; text:string; kind:string; confidence:number; createdAt:string; evidence?:number; status?:'consolidated'|'candidate' };
+type Candidate = { id:string; text:string; kind:string; confidence:number; source:string; createdAt:string };
+type Store = { memories:Memory[]; tasks:Task[]; messages:Message[]; activity:Activity[]; learning:Learning[]; candidates:Candidate[]; autonomy:boolean; cycles:number; actions:number };
 
-const KEY='pandora.phone.v1.6';
+const KEY='pandora.phone.v1.7';
 const LEGACY_KEY='pandora.phone.v1';
 const id=()=>crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const iso=()=>new Date().toISOString();
-const empty:Store={memories:[],tasks:[],messages:[],activity:[],learning:[],autonomy:true,cycles:0,actions:0};
+const empty:Store={memories:[],tasks:[],messages:[],activity:[],learning:[],candidates:[],autonomy:true,cycles:0,actions:0};
 
 function readStore():Store {
   try {
     const x=localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY); if(!x)return empty;
     const p=JSON.parse(x);
-    return {...empty,...p,memories:p.memories||[],tasks:p.tasks||[],messages:p.messages||[],activity:p.activity||[],learning:p.learning||[]};
+    return {...empty,...p,memories:p.memories||[],tasks:p.tasks||[],messages:p.messages||[],activity:p.activity||[],learning:p.learning||[],candidates:p.candidates||[]};
   } catch { return empty; }
 }
 function writeStore(s:Store){try{localStorage.setItem(KEY,JSON.stringify(s));}catch{}}
@@ -55,54 +56,74 @@ export default function Home(){
 
   const log=(type:string,text:string)=>setStore(s=>({...s,activity:[{id:id(),type,text,createdAt:iso()},...s.activity].slice(0,150)}));
 
-  const addLearning=(text:string,kind:string,confidence:number)=>setStore(s=>({...s,learning:[{id:id(),text,kind,confidence,createdAt:iso()},...s.learning].slice(0,250)}));
+  const addLearning=(text:string,kind:string,confidence:number,status:'consolidated'|'candidate'='consolidated',source='conversazione')=>setStore(s=>({...s,learning:[{id:id(),text,kind,confidence,createdAt:iso(),evidence:1,status},...s.learning].slice(0,300)}));
 
-  const rememberFact=(fact:string,category='Memoria',confidence=.8)=>{
+  const rememberFact=(fact:string,category='Memoria',confidence=.8,source='conversazione')=>{
     const clean=fact.trim();if(!clean)return;
-    let created=false;
     setStore(s=>{
       const old=s.memories.find(m=>m.text.toLowerCase()===clean.toLowerCase());
-      if(old)return {...s,memories:s.memories.map(m=>m.id===old.id?{...m,confidence:Math.min(1,m.confidence+.05),updatedAt:iso()}:m)};
-      created=true;
-      return {...s,memories:[{id:id(),text:clean,category,confidence,createdAt:iso()},...s.memories].slice(0,300)};
+      if(old){
+        return {...s,memories:s.memories.map(m=>m.id===old.id?{...m,confidence:Math.min(1,m.confidence+.05),updatedAt:iso()}:m),learning:[{id:id(),text:`Memoria rinforzata: ${clean}`,kind:'memoria',confidence:Math.min(1,old.confidence+.05),createdAt:iso(),evidence:2,status:'consolidated'},...s.learning].slice(0,300)};
+      }
+      return {...s,memories:[{id:id(),text:clean,category,confidence,createdAt:iso()},...s.memories].slice(0,300),learning:[{id:id(),text:`Nuova memoria: ${clean}`,kind:'memoria',confidence,createdAt:iso(),evidence:1,status:'consolidated'},...s.learning].slice(0,300)};
     });
-    addLearning(`${created?'Nuova memoria':'Memoria rinforzata'}: ${clean}`,'memoria',confidence);
-    log('apprendimento',`${created?'Imparato':'Rinforzato'}: ${clean}`);
+    log('apprendimento',`${source}: ${clean}`);
+  };
+
+  const addCandidate=(text:string,kind:string,confidence:number,source:string)=>{
+    const clean=text.trim();if(!clean)return;
+    setStore(s=>{
+      const exists=s.candidates.find(c=>c.text.toLowerCase()===clean.toLowerCase());
+      if(exists)return {...s,candidates:s.candidates.map(c=>c.id===exists.id?{...c,confidence:Math.min(1,c.confidence+.05)}:c)};
+      return {...s,candidates:[{id:id(),text:clean,kind,confidence,source,createdAt:iso()},...s.candidates].slice(0,40),learning:[{id:id(),text:`Candidato: ${clean}`,kind,confidence,createdAt:iso(),evidence:1,status:'candidate'},...s.learning].slice(0,300)};
+    });
+    log('apprendimento',`Candidato da verificare: ${clean}`);
+  };
+
+  const confirmCandidate=(candidate:Candidate)=>{
+    rememberFact(candidate.text,candidate.kind==='vincolo'?'Vincolo':candidate.kind==='preferenza'?'Preferenza':'Obiettivo',Math.min(1,candidate.confidence+.15),'conferma');
+    setStore(s=>({...s,candidates:s.candidates.filter(c=>c.id!==candidate.id)}));
+  };
+
+  const rejectCandidate=(candidate:Candidate)=>{
+    setStore(s=>({...s,candidates:s.candidates.filter(c=>c.id!==candidate.id),learning:[{id:id(),text:`Scartato: ${candidate.text}`,kind:'correzione',confidence:1,createdAt:iso(),evidence:1,status:'candidate'},...s.learning].slice(0,300)}));
+    log('apprendimento',`Candidato scartato: ${candidate.text}`);
   };
 
   const explicitMemory=(text:string)=>{
     const patterns:[RegExp,string,number][]=[
-      [/^ricorda(?:ti)? che\s+/i,'Memoria',.98],
-      [/^preferisco\s+/i,'Preferenza',.95],
-      [/^mi piace\s+/i,'Preferenza',.95],
-      [/^non mi piace\s+/i,'Preferenza negativa',.95],
-      [/^odio\s+/i,'Preferenza negativa',.95],
-      [/^amo\s+/i,'Preferenza',.95]
+      [/^ricorda(?:ti)? che\s+/i,'Memoria',.99],
+      [/^preferisco\s+/i,'Preferenza',.98],
+      [/^mi piace\s+/i,'Preferenza',.98],
+      [/^non mi piace\s+/i,'Preferenza negativa',.98],
+      [/^non voglio\s+/i,'Vincolo',.98],
+      [/^odio\s+/i,'Preferenza negativa',.98],
+      [/^amo\s+/i,'Preferenza',.98]
     ];
     const hit=patterns.find(([r])=>r.test(text));if(!hit)return null;
     const fact=text.replace(hit[0],'').trim();if(!fact)return null;
-    rememberFact(fact,hit[1],hit[2]);
+    rememberFact(fact,hit[1],hit[2],'istruzione esplicita');
     return `Memorizzato. Lo terrò presente: ${fact}`;
   };
 
   const inferLearning=(text:string)=>{
-    const patterns:[RegExp,string,string,number][]=[
-      [/\bmi chiamo\s+([a-zà-ÿ][a-zà-ÿ' -]{1,40})/i,'profilo','Hai indicato il nome: $1',.98],
-      [/\bpreferisco\s+(.{2,120})$/i,'preferenza','Preferisci: $1',.84],
-      [/\bmi piace\s+(.{2,120})$/i,'preferenza','Ti piace: $1',.84],
-      [/\bnon mi piace\s+(.{2,120})$/i,'preferenza','Non ti piace: $1',.84],
-      [/\bnon voglio\s+(.{2,120})$/i,'vincolo','Vincolo: $1',.82],
-      [/\bvorrei\s+(.{2,120})$/i,'obiettivo','Possibile obiettivo: $1',.72],
-      [/\bdevo\s+(.{2,120})$/i,'obiettivo','Possibile attività: $1',.7]
+    const patterns:[RegExp,string,string,number,boolean][]=[
+      [/\bmi chiamo\s+([a-zà-ÿ][a-zà-ÿ' -]{1,40})/i,'profilo','Hai indicato il nome: $1',.98,true],
+      [/\bpreferisco\s+(.{2,120})$/i,'preferenza','Preferisci: $1',.84,true],
+      [/\bmi piace\s+(.{2,120})$/i,'preferenza','Ti piace: $1',.84,true],
+      [/\bnon mi piace\s+(.{2,120})$/i,'preferenza','Non ti piace: $1',.84,true],
+      [/\bnon voglio\s+(.{2,120})$/i,'vincolo','Vincolo: $1',.9,true],
+      [/\bvorrei\s+(.{2,120})$/i,'obiettivo','Possibile obiettivo: $1',.68,false],
+      [/\bdevo\s+(.{2,120})$/i,'obiettivo','Possibile attività: $1',.68,false],
+      [/\bmi interessa\s+(.{2,120})$/i,'interesse','Interesse: $1',.65,false]
     ];
-    for(const [r,kind,template,confidence] of patterns){
+    for(const [r,kind,template,confidence,strong] of patterns){
       const m=r.exec(text);if(!m)continue;
       const value=m[1].trim().replace(/[.!?]+$/,'');if(value.length<2)continue;
       const fact=template.replace('$1',value);
-      if(kind==='preferenza'||kind==='vincolo'||kind==='profilo')rememberFact(fact,kind==='profilo'?'Profilo':'Preferenza',confidence);
-      addLearning(fact,kind,confidence);
-      log('apprendimento',`Segnale ${kind}: ${value}`);
-      return {kind,value};
+      if(strong)rememberFact(fact,kind==='profilo'?'Profilo':kind==='vincolo'?'Vincolo':'Preferenza',confidence);
+      else addCandidate(fact,kind,confidence,'conversazione');
+      return {kind,value,strong};
     }
     return null;
   };
@@ -123,30 +144,43 @@ export default function Home(){
     const inferred=inferLearning(text);
     const l=text.toLowerCase().trim();
     const rel=relevant(text);
-    const recent=store.messages.filter(m=>m.role==='user').slice(-3).map(m=>m.text);
+    const recent=store.messages.filter(m=>m.role==='user').slice(-4).map(m=>m.text);
 
     if(/^(ciao|salve|hey|buongiorno|buonasera)\b/i.test(l)){
-      return rel.length?`Ciao! Ricordo ${rel[0].text}. Possiamo ripartire da lì. Cosa vuoi fare adesso?`:'Ciao! Sono qui. Dimmi cosa vuoi fare e, se emerge qualcosa di utile, lo imparerò.';
+      return rel.length?`Ciao! Ho ritrovato questo collegamento nella mia memoria: ${rel[0].text}. Vuoi continuare da lì o iniziare qualcosa di nuovo?`:'Ciao! Sono qui. Raccontami cosa stai facendo: cercherò di capire il contesto, rispondere e imparare ciò che può essermi utile in futuro.';
     }
     if(l.includes('cosa puoi fare')||l.includes('cosa sai fare')){
-      return 'Posso conversare, mantenere memoria, riconoscere preferenze e vincoli, creare attività, collegare messaggi tra loro, proporre il prossimo passo e registrare ciò che imparo. Il tutto resta locale sul telefono.';
+      return 'Posso conversare, ricordare informazioni, riconoscere preferenze e vincoli, individuare obiettivi, creare attività, collegare messaggi, fare domande di chiarimento e correggere ciò che ho imparato. Tutto ciò che salvo resta sul telefono.';
     }
     if(l.includes('cosa ricordi')||l.includes('cosa sai di me')){
-      return store.memories.length?`Queste sono le memorie consolidate:\n${store.memories.slice(0,15).map(m=>`• ${m.text}`).join('\n')}`:'Non ho ancora memorie consolidate.';
+      const mem=store.memories.length?`Memorie consolidate:\n${store.memories.slice(0,15).map(m=>`• ${m.text}`).join('\n')}`:'Non ho ancora memorie consolidate.';
+      const cand=store.candidates.length?`\n\nSto ancora verificando:\n${store.candidates.slice(0,6).map(c=>`• ${c.text}`).join('\n')}`:'';
+      return mem+cand;
+    }
+    if(l.includes('cosa hai imparato')||l.includes('cosa hai imparato oggi')){
+      return store.learning.length?`Negli ultimi apprendimenti ho registrato:\n${store.learning.slice(0,10).map(x=>`• ${x.text} (${Math.round(x.confidence*100)}%)`).join('\n')}`:'Non ho ancora registrato apprendimenti.';
     }
     if(/^(?:aggiungi|crea|metti)\s+(?:un[ae]?\s+)?attivit[aà]/i.test(text)){
       const title=text.replace(/^(?:aggiungi|crea|metti)\s+(?:un[ae]?\s+)?attivit[aà]\s*:?[ ]*/i,'').trim();
-      if(title){addTask(title);return`Attività aggiunta: ${title}. La controllerò nei cicli autonomi.`;}
+      if(title){addTask(title);return`Attività aggiunta: ${title}. La terrò nel contesto delle prossime conversazioni.`;}
     }
     if(l.includes('quante attività')||l.includes('quante attivita'))return`Hai ${store.tasks.filter(t=>!t.done).length} attività aperte.`;
     if(l.includes('elenca')&&l.includes('attivit'))return store.tasks.filter(t=>!t.done).length?store.tasks.filter(t=>!t.done).map((t,i)=>`${i+1}. ${t.title}`).join('\n'):'Non hai attività aperte.';
-    if(l.includes('stato')&&l.includes('autonomia'))return`Autonomia ${store.autonomy?'attiva':'in pausa'}. ${store.memories.length} memorie, ${store.learning.length} apprendimenti, ${store.tasks.filter(t=>!t.done).length} attività aperte e ${store.cycles} cicli locali.`;
-    if(l.includes('grazie'))return'Di nulla. Continuo a usare ciò che mi insegni per rendere le risposte successive più pertinenti.';
-    if(inferred?.kind==='obiettivo')return`Ho capito. Hai espresso un possibile obiettivo: “${inferred.value}”. Se vuoi, posso trasformarlo in un’attività e seguirne l’avanzamento.`;
+    if(l.includes('stato')&&l.includes('autonomia'))return`Autonomia ${store.autonomy?'attiva':'in pausa'}. ${store.memories.length} memorie, ${store.learning.length} apprendimenti, ${store.candidates.length} elementi da verificare e ${store.tasks.filter(t=>!t.done).length} attività aperte.`;
+    if(l.includes('grazie'))return'Di nulla. Continuo a usare il contesto che mi dai, ma se una mia memoria è sbagliata puoi correggermi: la correzione ha priorità.';
+    if(/^(non è vero|non e vero|sbagliato|non è così|non e cosi)\b/i.test(l)){
+      const last=store.memories[0];
+      if(last){setStore(s=>({...s,memories:s.memories.filter(m=>m.id!==last.id)}));log('correzione',`Memoria rimossa dopo correzione: ${last.text}`);return`Ricevuto. Considero errata l'ultima memoria consolidata (“${last.text}”) e la rimuovo. Dimmi quale informazione è corretta e la sostituirò.`;}
+      return'Ricevuto. Non consoliderò questa informazione. Dimmi cosa devo correggere.';
+    }
+    if(inferred?.strong&&inferred.kind==='obiettivo')return`Ho capito l'informazione e l'ho memorizzata. Se è un obiettivo, posso anche trasformarla in un'attività concreta.`;
+    if(inferred?.kind==='obiettivo')return`Ho rilevato un possibile obiettivo: “${inferred.value}”. Non lo considero ancora una certezza: vuoi che lo salvi come obiettivo?`;
+    if(inferred?.kind==='interesse')return`Ho rilevato un possibile interesse per “${inferred.value}”. Per ora lo tengo come candidato, così non trasformo ogni frase in una memoria permanente.`;
     if(inferred?.kind==='vincolo')return`Capito. Terrò conto di questo vincolo: “${inferred.value}”.`;
-    if(rel.length)return`Ti seguo. Questa richiesta si collega a ciò che ho già imparato: ${rel.map(m=>m.text).join('; ')}. Posso usare questo contesto per la prossima azione.`;
-    if(/\?$/.test(text.trim()))return recent.length>1?`Sì, posso ragionarci. Vedo anche il filo della conversazione recente: “${recent[recent.length-2].slice(0,120)}”. Dimmi il dettaglio che vuoi approfondire e lo collegherò al contesto locale.`:'Posso ragionarci, ma non inventerò informazioni che non possiedo. Se mi dai un dettaglio in più, posso collegarlo alla memoria e imparare da quello che mi dici.';
-    return`Capito: “${text}”. Lo tratto come parte della conversazione, non come un messaggio isolato. Se contiene una preferenza, un vincolo o un obiettivo utile, posso consolidarlo nella memoria locale.`;
+    if(rel.length)return`Ti seguo. Questa richiesta si collega a ${rel.length===1?'una cosa':'cose'} che ho già imparato: ${rel.map(m=>m.text).join('; ')}. Se il collegamento è corretto, posso usarlo come contesto per la prossima azione.`;
+    if(recent.length>=2)return`Sto seguendo il filo della conversazione. Prima mi hai detto “${recent[recent.length-2].slice(0,110)}”. Ora mi stai dicendo “${text.slice(0,150)}”. Vuoi che colleghi esplicitamente queste due cose?`;
+    if(/\?$/.test(text.trim()))return'Posso ragionarci, ma non voglio inventare una risposta. Dammi il dettaglio più importante e proverò a costruire la risposta usando anche ciò che ho imparato da te.';
+    return`Ti ascolto. Hai detto: “${text}”. Non lo tratto come un messaggio isolato: verifico il contesto, cerco collegamenti nella memoria e, quando emerge qualcosa di stabile, lo trasformo in un apprendimento.`;
   };
 
   const send=async()=>{
@@ -163,7 +197,7 @@ export default function Home(){
   const clearAll=()=>{if(confirm('Eliminare memoria, attività, conversazioni e registro locali?'))setStore({...empty,messages:[]});};
 
   return <main>
-    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className="status ai">● Telefono</span><span className="version">v1.6</span></div></header>
+    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className="status ai">● Telefono</span><span className="version">v1.7</span></div></header>
     <section className="hero"><div><small>STATO DEL SISTEMA</small><h2>{store.autonomy?'Nucleo operativo.':'Autonomia in pausa.'}</h2><p>Conversazione, memoria e apprendimento avvengono localmente sul telefono.</p></div><div className="stats"><div><b>{store.memories.length}</b><span>memorie</span></div><div><b>{pending}</b><span>aperte</span></div><div><b>{store.learning.length}</b><span>appresi</span></div></div></section>
     <nav className="tabs">{(['chat','memory','tasks','activity','settings'] as Tab[]).map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{x==='chat'?'Pandora':x==='memory'?'Memoria':x==='tasks'?'Attività':x==='activity'?'Registro':'Impostazioni'}</button>)}</nav>
 
@@ -171,12 +205,14 @@ export default function Home(){
 
     {tab==='memory'&&<section className="panel"><div className="panelhead"><div><small>LONG-TERM MEMORY</small><h2>Memoria</h2></div><span>{store.memories.length}</span></div>{!store.memories.length?<p className="empty">Nessuna memoria. Pandora impara automaticamente da segnali forti; puoi anche scrivere “ricorda che…”</p>:store.memories.map(m=><article className="memory" key={m.id}><div><b>{m.text}</b><small>{m.category} · {Math.round(m.confidence*100)}% · {new Date(m.createdAt).toLocaleDateString('it-IT')}</small></div><button onClick={()=>{setStore(s=>({...s,memories:s.memories.filter(x=>x.id!==m.id)}));log('memoria',`Eliminata: ${m.text}`)}}>×</button></article>)}</section>}
 
+    {tab==='memory'&&store.candidates.length>0&&<section className="panel"><div className="panelhead"><div><small>ACTIVE LEARNING</small><h2>Da verificare</h2></div><span>{store.candidates.length}</span></div><p className="empty" style={{padding:'8px 4px 14px'}}>Pandora non salva automaticamente ogni frase come verità: questi elementi sono ipotesi ricavate dalle conversazioni.</p>{store.candidates.map(c=><article className="memory" key={c.id}><div><b>{c.text}</b><small>{c.kind} · {Math.round(c.confidence*100)}% · candidato</small></div><button onClick={()=>confirmCandidate(c)}>✓</button><button onClick={()=>rejectCandidate(c)}>×</button></article>)}</section>}
+
     {tab==='tasks'&&<section className="panel"><div className="panelhead"><div><small>PERSONAL WORK QUEUE</small><h2>Attività</h2></div><span>{pending} aperte</span></div><TaskInput onAdd={addTask}/><div className="task-list">{!store.tasks.length?<p className="empty">Nessuna attività.</p>:store.tasks.map(t=><label className="task" key={t.id}><input type="checkbox" checked={t.done} onChange={()=>{setStore(s=>({...s,tasks:s.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x)}));log('attività',`${t.done?'Riaperta':'Completata'}: ${t.title}`)}}/><span className={t.done?'done':''}>{t.title}</span><button type="button" onClick={e=>{e.preventDefault();setStore(s=>({...s,tasks:s.tasks.filter(x=>x.id!==t.id)}));log('attività',`Eliminata: ${t.title}`)}}>×</button></label>)}</div></section>}
 
     {tab==='activity'&&<section className="panel"><div className="panelhead"><div><small>LEARNING & AUDIT</small><h2>Registro</h2></div><span>{store.activity.length}</span></div>{store.learning.slice(0,12).map(x=><div className="log" key={x.id}><i>impara</i><span>{x.text}</span><time>{Math.round(x.confidence*100)}% · {new Date(x.createdAt).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></div>)}{store.activity.slice(0,80).map(a=><div className="log" key={a.id}><i>{a.type}</i><span>{a.text}</span><time>{new Date(a.createdAt).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></div>)}{!store.activity.length&&!store.learning.length&&<p className="empty">Nessuna attività registrata.</p>}</section>}
 
-    {tab==='settings'&&<section className="panel settings"><div className="panelhead"><div><small>PHONE CONTROL PLANE</small><h2>Impostazioni</h2></div></div><div className="setting"><div><b>Apprendimento attivo</b><span>Pandora riconosce segnali espliciti e forti nelle conversazioni, assegna una confidenza e li consolida localmente. Non invia questi dati a servizi esterni.</span></div><strong>{store.learning.length}</strong></div><div className="setting"><div><b>Autonomia locale</b><span>Il ciclo lavora direttamente nel browser. Quando iOS sospende la PWA, JavaScript può fermarsi: è un limite del sistema operativo.</span></div><button className={`switch ${store.autonomy?'on':''}`} onClick={()=>{const n=!store.autonomy;setStore(s=>({...s,autonomy:n}));log('sistema',`Autonomia ${n?'attivata':'messa in pausa'}`)}}><span/></button></div><div className="setting"><div><b>Memoria</b><span>Persistente sul dispositivo tramite localStorage.</span></div><strong>{store.memories.length}</strong></div><div className="architecture"><b>Architettura v1.6 — Active Learning</b><p>iPhone → conversazione → riconoscimento → memoria → contesto → risposta → apprendimento → consolidamento.</p><small>Il cervello generativo può essere aggiunto in seguito come modulo locale opzionale. Il nucleo non dipende da un computer o da un'API AI esterna.</small></div><div className="danger"><div><b>Azzeramento locale</b><span>Cancella tutti i dati salvati su questo telefono.</span></div><button onClick={clearAll}>Cancella dati</button></div></section>}
-    <footer><span>Pandora v1.6</span><span>·</span><span>phone-first</span><span>·</span><span>active-learning</span></footer>
+    {tab==='settings'&&<section className="panel settings"><div className="panelhead"><div><small>PHONE CONTROL PLANE</small><h2>Impostazioni</h2></div></div><div className="setting"><div><b>Apprendimento attivo</b><span>Pandora riconosce segnali espliciti e forti nelle conversazioni, assegna una confidenza e li consolida localmente. Non invia questi dati a servizi esterni.</span></div><strong>{store.learning.length}</strong></div><div className="setting"><div><b>Ipotesi da verificare</b><span>Per informazioni meno certe, Pandora crea un candidato invece di trasformarlo subito in memoria. Puoi confermarlo o scartarlo.</span></div><strong>{store.candidates.length}</strong></div><div className="setting"><div><b>Autonomia locale</b><span>Il ciclo lavora direttamente nel browser. Quando iOS sospende la PWA, JavaScript può fermarsi: è un limite del sistema operativo.</span></div><button className={`switch ${store.autonomy?'on':''}`} onClick={()=>{const n=!store.autonomy;setStore(s=>({...s,autonomy:n}));log('sistema',`Autonomia ${n?'attivata':'messa in pausa'}`)}}><span/></button></div><div className="setting"><div><b>Memoria</b><span>Persistente sul dispositivo tramite localStorage.</span></div><strong>{store.memories.length}</strong></div><div className="architecture"><b>Architettura v1.7 — Active Learning</b><p>iPhone → conversazione → riconoscimento → memoria → contesto → risposta → apprendimento → consolidamento.</p><small>Il cervello generativo può essere aggiunto in seguito come modulo locale opzionale. Il nucleo non dipende da un computer o da un'API AI esterna.</small></div><div className="danger"><div><b>Azzeramento locale</b><span>Cancella tutti i dati salvati su questo telefono.</span></div><button onClick={clearAll}>Cancella dati</button></div></section>}
+    <footer><span>Pandora v1.7</span><span>·</span><span>phone-first</span><span>·</span><span>active-learning</span></footer>
   </main>;
 }
 
