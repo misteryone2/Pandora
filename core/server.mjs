@@ -216,7 +216,7 @@ function enqueue(type, payload={}, priority=50, runAt=now(), source='system') {
   return item;
 }
 function enqueueUnique(type, key, payload={}, priority=50, runAt=now()) {
-  const exists = state.queue.some(q => q.type === type && q.payload?.key === key && q.runAt >= now()-60000);
+  const exists = state.queue.some(q => q.type === type && (q.payload?.key === key || q.payload?.memoryId === payload?.memoryId || q.payload?.taskId === payload?.taskId) && q.runAt >= now()-60000);
   return exists ? null : enqueue(type, {...payload, key}, priority, runAt);
 }
 function nextWork() {
@@ -248,8 +248,13 @@ function localCognition(text) {
   if(/quante attivit[aà]|attivit[aà] aperte/i.test(l)){return {text:`Hai ${openTasks().length} attività aperte.`,actions:[]};}
   if(/stato|come stai|cosa puoi fare/i.test(l)){return {text:`Sono Pandora Core, locale. Ho ${state.memories.length} memorie, ${openTasks().length} attività aperte e autonomia ${state.autonomy?'attiva':'in pausa'}. Il ciclo autonomo è ${state.autonomy?'operativo':'sospeso'}.`,actions:[]};}
   const rel=relevantMemories(raw);
-  let reply='Ho elaborato la richiesta localmente. '; if(rel.length) reply+=`Terrò conto di: ${rel.map(m=>m.text).join('; ')}. `;
-  reply+='Posso osservare, pianificare e svolgere automaticamente solo azioni locali sicure autorizzate.';
+  if (/^(ciao|salve|hey|buongiorno|buonasera)\b/i.test(raw)) return {text:'Ciao! Sono qui. Dimmi cosa vuoi fare e proverò a gestirlo localmente.',actions:[]};
+  if (/\b(aiut|puoi|cosa sai fare|funzion)\b/i.test(l)) return {text:'Posso conversare, ricordare informazioni, creare e completare attività, pianificare lavori locali e mantenere una memoria persistente. Se il modello locale è disponibile posso anche interpretare richieste più complesse.',actions:[]};
+  if (/\b(perch[eé]|come mai|spieg)\b/i.test(l)) return {text:`Posso analizzare la richiesta localmente. ${rel.length ? `Ho trovato nella memoria elementi collegati: ${rel.map(m=>m.text).join('; ')}.` : 'Non ho trovato memorie direttamente pertinenti.'}`,actions:[]};
+  if (/\b(grazie|perfetto|ok|va bene)\b/i.test(l)) return {text:'Di nulla. Possiamo continuare da qui.',actions:[]};
+  if (/\b(oggi|domani|ieri|settimana|mese)\b/i.test(l)) return {text:`La richiesta riguarda un riferimento temporale. ${rel.length ? `Terrò conto anche di: ${rel.map(m=>m.text).join('; ')}.` : 'Per ora non ho abbastanza contesto locale per pianificarla in modo preciso.'}`,actions:[]};
+  let reply=rel.length ? `Ho capito la richiesta. Le informazioni che posso collegare sono: ${rel.map(m=>m.text).join('; ')}.` : `Ho ricevuto: “${raw.slice(0,240)}”.`;
+  reply += ' Il cervello locale non è disponibile in questo momento, quindi non invento una risposta: posso comunque registrare memoria, attività e lavori sicuri.';
   return {text:reply,actions:[]};
 }
 
@@ -350,7 +355,7 @@ async function handle(req,res){
   if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type','Access-Control-Allow-Methods':'GET,POST,OPTIONS'});return res.end();}
   try{
     const u=new URL(req.url,`http://${req.headers.host||'localhost'}`); const p=u.pathname;
-    if(req.method==='GET'&&p==='/health') return res.end(respond({ok:true,name:'Pandora Core',version:'1.3.0',mode:'local-autonomous',autonomy:state.autonomy,cycleRunning,queue:state.queue.length,stats:state.autonomyStats,now:iso()}));
+    if(req.method==='GET'&&p==='/health') return res.end(respond({ok:true,name:'Pandora Core',version:'1.4.0',mode:'local-autonomous',autonomy:state.autonomy,cycleRunning,queue:state.queue.length,stats:state.autonomyStats,now:iso()}));
     if(req.method==='GET'&&p==='/state') return res.end(respond({ok:true,state}));
     if(req.method==='GET'&&p==='/llm/status') return res.end(respond({ok:true,enabled:LLM_ENABLED,provider:'ollama-local',baseUrl:LLM_BASE_URL,selectedModel:LLM_MODEL,available:llmLast.ok,stats:llmLast}));
     if(req.method==='GET'&&p==='/llm/models') return res.end(respond({ok:true,provider:'ollama-local',selectedModel:LLM_MODEL,models:await listLocalModels()}));
