@@ -1,105 +1,27 @@
-# Pandora v1.3 — Autonomous Core + Local LLM
+# Pandora v1.5 — Phone First
 
-Pandora è **local-first**: il ciclo autonomo non dipende da OpenAI, Anthropic, Google o altri servizi AI esterni.
+Pandora v1.5 è stata riprogettata per poter essere usata **solo da iPhone**, senza Pandora Core su un computer e senza Ollama/API AI obbligatori.
 
-## Ciclo autonomo
+## Cosa funziona direttamente dal telefono
 
-`evento → memoria → valutazione → pianificazione → permessi → azione → osservazione → apprendimento`
+- chat locale
+- memoria persistente
+- attività e completamento
+- registro/audit locale
+- autonomia locale mentre la PWA è attiva
+- Service Worker per rendere l'app installabile come PWA
+- nessun indirizzo IP da configurare
+- nessun server personale obbligatorio
+- nessuna API AI cloud obbligatoria
 
-In questa versione il ciclo è realmente operativo per le azioni locali sicure già supportate.
+## Limite importante di iOS
 
-### Efficienza
+Una PWA non può essere garantita come processo autonomo continuo quando viene sospesa o chiusa da iOS. Per questo l'autonomia di questa versione lavora quando Pandora è attiva/in primo piano. Non viene spacciata per un demone in background che iOS non consentirebbe.
 
-Il Core usa una **coda persistente event-driven** invece di eseguire un polling continuo ogni pochi secondi:
+## Sviluppo da solo iPhone
 
-- se non c'è lavoro, il Core resta inattivo;
-- un nuovo evento risveglia immediatamente il ciclo;
-- gli eventi futuri risvegliano il Core esattamente quando servono;
-- una manutenzione leggera viene eseguita periodicamente per recuperare lavori rimasti dopo un riavvio;
-- ogni ciclo ha un limite di passi per evitare loop infiniti;
-- le azioni sono idempotenti dove possibile e hanno cooldown;
-- gli errori vengono ritentati con backoff;
-- la coda e le statistiche sono persistenti;
-- tutte le azioni vengono registrate nell'audit log.
+Il progetto può essere modificato tramite un editor GitHub/web dal telefono e pubblicato su un hosting statico/Next.js. Non è necessario avere un PC per usare Pandora.
 
-## Avvio
+## Modello generativo locale
 
-Requisito: Node.js >= 20.9.
-
-```bash
-./start-pandora-core.sh
-```
-
-Core: `http://localhost:8787`
-
-## API
-
-- `GET /health` — salute, coda e statistiche
-- `GET /state` — stato persistente
-- `GET /autonomy` — stato del ciclo autonomo
-- `POST /chat` `{ "text": "..." }`
-- `POST /memory` `{ "text": "...", "category": "..." }`
-- `POST /tasks` `{ "title": "...", "priority": 80, "dueAt": "..." }`
-- `POST /autonomy` `{ "enabled": true }`
-- `POST /autonomy/wake` — risveglio manuale del ciclo
-
-## Dati
-
-La memoria vive in `data/pandora.json`. Il salvataggio viene effettuato con scrittura temporanea + rename per ridurre il rischio di corruzione durante uno spegnimento.
-
-## Interfaccia iPhone
-
-La PWA interroga il Core tramite le API Next.js e mostra lo stato del nucleo. Il toggle Autonomia controlla direttamente il Core.
-
-## LLM locale
-
-Il Core integra un adapter per **Ollama in locale**. Il modello non viene chiamato da un servizio cloud: per impostazione predefinita Pandora usa `http://127.0.0.1:11434`. Ollama espone l'API locale senza autenticazione e supporta output strutturati tramite JSON Schema. citeturn0search4turn0search0
-
-### Installazione
-
-1. Installa Ollama sul computer che esegue Pandora.
-2. Avvia un modello locale, per esempio:
-
-```bash
-ollama pull gemma3
-ollama serve
-```
-
-3. Avvia Pandora Core.
-
-Il Core scopre i modelli installati con `/api/tags` e permette di selezionare il modello. citeturn0search1
-
-### Selezione modello
-
-```text
-GET  /llm/models
-POST /llm/select { "model": "gemma3" }
-GET  /llm/status
-```
-
-La selezione resta nel processo corrente; per renderla predefinita usa `PANDORA_LLM_MODEL`.
-
-### Contesto efficiente
-
-Pandora non invia l'intero database al modello. Costruisce un contesto compatto con:
-- memorie semanticamente rilevanti;
-- ultime conversazioni;
-- obiettivi attivi;
-- attività aperte;
-- stato dell'autonomia.
-
-Il contesto ha limiti configurabili per caratteri, messaggi e memorie.
-
-### Output strutturato
-
-Il planner richiede direttamente a Ollama un JSON Schema e valida il risultato prima di consentire qualsiasi tool. Questo riduce parsing fragile e impedisce al modello di eseguire arbitrariamente codice. Ollama documenta il supporto a JSON Schema nel campo `format` e raccomanda temperature basse per output affidabili. citeturn0search0
-
-### Fallback
-
-Se Ollama è spento, il modello manca, scade il timeout o restituisce JSON non valido, Pandora torna automaticamente al motore deterministico. Il fallimento attiva inoltre un cooldown per evitare di martellare il modello indisponibile.
-
-### Efficienza
-
-Il percorso rapido resta deterministico per comandi ovvi (`ricorda`, `aggiungi attività`, richieste sullo stato). L'LLM viene utilizzato solo quando serve interpretazione semantica. Il modello viene mantenuto caldo per il periodo configurato tramite `keep_alive`. Ollama espone anche metriche di durata e token che possono essere usate per ottimizzare ulteriormente il Core. citeturn0search12turn0search3
-
-Il Core rimane **local-first**: nessun fallback verso OpenAI, Anthropic, Google o altri servizi AI esterni.
+Il modello generativo non è una dipendenza di v1.5. L'architettura lascia un punto di estensione per un modello eseguito localmente nel browser (WebGPU/WASM) in una versione successiva. Questo mantiene il requisito: **nessun altro sistema AI cloud deve essere il cervello di Pandora**.
