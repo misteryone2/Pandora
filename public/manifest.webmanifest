@@ -1,11 +1,10 @@
 {
-  "name": "Pandora — Personal Autonomous Assistant",
+  "name": "Pandora",
   "short_name": "Pandora",
-  "description": "Assistente personale local-first con memoria, attività e Core AI.",
+  "description": "Personal Autonomous Assistant — phone first, local first",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#070911",
-  "theme_color": "#0b0d16",
-  "lang": "it",
+  "background_color": "#08090d",
+  "theme_color": "#08090d",
   "icons": []
 }
