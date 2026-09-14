@@ -1,8 +1,8 @@
-# Pandora v1.6 — Phone First / Active Learning
+# Pandora v1.7 — Phone First / Active Learning
 
 Pandora è una PWA progettata per essere utilizzata direttamente da iPhone senza un PC, un server locale o un'API AI cloud.
 
-## Cosa aggiunge v1.6
+## Cosa aggiunge v1.7
 
 - **Risposte contestuali**: Pandora usa le memorie pertinenti e gli ultimi messaggi per evitare risposte isolate.
 - **Apprendimento attivo locale**: riconosce segnali espliciti o forti come preferenze, vincoli, profilo e possibili obiettivi.
@@ -11,6 +11,17 @@ Pandora è una PWA progettata per essere utilizzata direttamente da iPhone senza
 - **Registro dell'apprendimento**: è possibile vedere cosa Pandora ha imparato e con quale confidenza.
 - **Autonomia phone-first**: controlla le attività mentre la PWA è attiva. iOS può sospendere JavaScript quando l'app è in background o chiusa.
 - **Nessun cervello cloud**: nessuna chiamata a OpenAI, ChatGPT o altri servizi AI esterni.
+
+## Apprendimento a due livelli
+
+Pandora ora separa gli apprendimenti in due livelli:
+
+1. **Memoria consolidata** — informazioni esplicite o molto forti vengono salvate e rinforzate quando ricompaiono.
+2. **Candidati** — interessi, obiettivi o intenzioni meno certe vengono mantenuti come ipotesi. Pandora può proporteli nella conversazione e puoi confermarli o scartarli dalla sezione Memoria.
+
+Le correzioni hanno priorità: se dici che un'informazione è sbagliata, Pandora può rimuoverla invece di continuare a usarla.
+
+La risposta considera istruzioni esplicite, memoria pertinente, segnali di apprendimento, filo recente della conversazione e necessità di chiarimento. Questo evita che ogni messaggio venga trattato come completamente indipendente.
 
 ## Esempi
 
