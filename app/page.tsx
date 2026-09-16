@@ -2,26 +2,29 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-type Tab = 'chat' | 'memory' | 'tasks' | 'activity' | 'settings';
+type Tab = 'chat' | 'research' | 'memory' | 'tasks' | 'activity' | 'settings';
 type Memory = { id:string; text:string; category:string; confidence:number; createdAt:string; updatedAt?:string };
 type Task = { id:string; title:string; done:boolean; createdAt:string; priority:number };
 type Message = { id:string; role:'user'|'pandora'; text:string; createdAt:string; mode?:string };
 type Activity = { id:string; type:string; text:string; createdAt:string };
 type Learning = { id:string; text:string; kind:string; confidence:number; createdAt:string; evidence?:number; status?:'consolidated'|'candidate' };
 type Candidate = { id:string; text:string; kind:string; confidence:number; source:string; createdAt:string };
-type Store = { memories:Memory[]; tasks:Task[]; messages:Message[]; activity:Activity[]; learning:Learning[]; candidates:Candidate[]; autonomy:boolean; cycles:number; actions:number };
+type ResearchSource = { id:string; title:string; url:string; extract:string; source:string; fetchedAt:string };
+type Research = { id:string; query:string; createdAt:string; sources:ResearchSource[]; summary:string; keywords:string[] };
 
-const KEY='pandora.phone.v1.7';
+type Store = { memories:Memory[]; tasks:Task[]; messages:Message[]; activity:Activity[]; learning:Learning[]; candidates:Candidate[]; researches:Research[]; autonomy:boolean; cycles:number; actions:number };
+
+const KEY='pandora.phone.v1.8';
 const LEGACY_KEY='pandora.phone.v1';
 const id=()=>crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const iso=()=>new Date().toISOString();
-const empty:Store={memories:[],tasks:[],messages:[],activity:[],learning:[],candidates:[],autonomy:true,cycles:0,actions:0};
+const empty:Store={memories:[],tasks:[],messages:[],activity:[],learning:[],candidates:[],researches:[],autonomy:true,cycles:0,actions:0};
 
 function readStore():Store {
   try {
     const x=localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY); if(!x)return empty;
     const p=JSON.parse(x);
-    return {...empty,...p,memories:p.memories||[],tasks:p.tasks||[],messages:p.messages||[],activity:p.activity||[],learning:p.learning||[],candidates:p.candidates||[]};
+    return {...empty,...p,memories:p.memories||[],tasks:p.tasks||[],messages:p.messages||[],activity:p.activity||[],learning:p.learning||[],candidates:p.candidates||[],researches:p.researches||[]};
   } catch { return empty; }
 }
 function writeStore(s:Store){try{localStorage.setItem(KEY,JSON.stringify(s));}catch{}}
@@ -139,6 +142,40 @@ export default function Home(){
     log('attività',`Creata attività: ${clean}`);
   };
 
+  const [researchQuery,setResearchQuery]=useState('');
+  const [researchLoading,setResearchLoading]=useState(false);
+  const [researches,setResearches]=useState<Research[]>([]);
+
+  useEffect(()=>{ if(hydrated) setResearches(store.researches); },[hydrated,store.researches]);
+
+  const makeKeywords=(text:string)=>Array.from(new Set(text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9à-ÿ]+/).filter(w=>w.length>4))).slice(0,12);
+  const buildSummary=(query:string,sources:ResearchSource[])=>{
+    const joined=sources.map(s=>s.extract).join(' ');
+    const kws=makeKeywords(query+' '+joined);
+    const sentences=joined.split(/(?<=[.!?])\s+/).filter(Boolean);
+    const selected=sentences.filter(x=>kws.some(k=>x.toLowerCase().includes(k))).slice(0,8);
+    return selected.length?selected.join(' '):sources.map(s=>s.extract).join(' ' ).slice(0,1600);
+  };
+  const runResearch=async()=>{
+    const q=researchQuery.trim();if(!q||researchLoading)return;
+    setResearchLoading(true);
+    try{
+      const url=`https://it.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=6&prop=extracts&exintro=1&explaintext=1&format=json&origin=*`;
+      const r=await fetch(url); if(!r.ok) throw new Error('Ricerca non disponibile');
+      const data=await r.json();
+      const pages=Object.values(data.query?.pages||{}) as any[];
+      const sources:ResearchSource[]=pages.map((x:any)=>({id:id(),title:x.title||'Senza titolo',url:`https://it.wikipedia.org/wiki/${encodeURIComponent((x.title||'').replace(/ /g,'_'))}`,extract:String(x.extract||'').slice(0,1200),source:'Wikipedia',fetchedAt:iso()})).filter(x=>x.extract);
+      const summary=buildSummary(q,sources);
+      const result:Research={id:id(),query:q,createdAt:iso(),sources,summary,keywords:makeKeywords(q)};
+      setStore(s=>({...s,researches:[result,...s.researches].slice(0,30),activity:[{id:id(),type:'ricerca',text:`Ricerca completata: ${q} · ${sources.length} fonti`,createdAt:iso()},...s.activity].slice(0,150)}));
+    }catch(e){setStore(s=>({...s,activity:[{id:id(),type:'ricerca',text:`Ricerca non riuscita: ${q}`,createdAt:iso()},...s.activity].slice(0,150)}));}
+    finally{setResearchLoading(false);}
+  };
+  const saveResearchMemory=(r:Research)=>{
+    const fact=`Ricerca: ${r.query}. Sintesi: ${r.summary.slice(0,700)}`;
+    rememberFact(fact,'Ricerca',.75,'ricerca locale');
+  };
+
   const answer=(text:string):string=>{
     const explicit=explicitMemory(text);if(explicit)return explicit;
     const inferred=inferLearning(text);
@@ -197,11 +234,13 @@ export default function Home(){
   const clearAll=()=>{if(confirm('Eliminare memoria, attività, conversazioni e registro locali?'))setStore({...empty,messages:[]});};
 
   return <main>
-    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className="status ai">● Telefono</span><span className="version">v1.7</span></div></header>
+    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className="status ai">● Telefono</span><span className="version">v1.8</span></div></header>
     <section className="hero"><div><small>STATO DEL SISTEMA</small><h2>{store.autonomy?'Nucleo operativo.':'Autonomia in pausa.'}</h2><p>Conversazione, memoria e apprendimento avvengono localmente sul telefono.</p></div><div className="stats"><div><b>{store.memories.length}</b><span>memorie</span></div><div><b>{pending}</b><span>aperte</span></div><div><b>{store.learning.length}</b><span>appresi</span></div></div></section>
-    <nav className="tabs">{(['chat','memory','tasks','activity','settings'] as Tab[]).map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{x==='chat'?'Pandora':x==='memory'?'Memoria':x==='tasks'?'Attività':x==='activity'?'Registro':'Impostazioni'}</button>)}</nav>
+    <nav className="tabs">{(['chat','research','memory','tasks','activity','settings'] as Tab[]).map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{x==='chat'?'Pandora':x==='research'?'Ricerca':x==='memory'?'Memoria':x==='tasks'?'Attività':x==='activity'?'Registro':'Impostazioni'}</button>)}</nav>
 
     {tab==='chat'&&<section className="panel chat-panel"><div className="chat-toolbar"><span>Conversazione</span><small>{loading?'Pandora sta elaborando…':store.autonomy?'apprendimento attivo':'pausa'}</small></div><div className="messages">{store.messages.map(m=><div key={m.id} className={`message ${m.role}`}><span className="avatar">{m.role==='pandora'?'✦':'Tu'}</span><div><p>{m.text}</p><small>{new Date(m.createdAt).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})} · {m.mode||'locale'}</small></div></div>)}{loading&&<div className="message pandora"><span className="avatar">✦</span><div><p className="typing">•••</p></div></div>}</div><div className="composer"><textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}} placeholder="Parla con Pandora…" rows={1}/><button onClick={send} disabled={loading||!input.trim()}>↑</button></div><div className="quick"><button onClick={()=>setInput('Ricorda che ')}>+ Memoria</button><button onClick={()=>setInput('Aggiungi attività ')}>+ Attività</button><button onClick={()=>setInput('Cosa ricordi di me?')}>Cosa ricordi?</button></div></section>}
+
+    {tab==='research'&&<ResearchPanel query={researchQuery} setQuery={setResearchQuery} loading={researchLoading} run={runResearch} researches={researches} onSave={saveResearchMemory}/>} 
 
     {tab==='memory'&&<section className="panel"><div className="panelhead"><div><small>LONG-TERM MEMORY</small><h2>Memoria</h2></div><span>{store.memories.length}</span></div>{!store.memories.length?<p className="empty">Nessuna memoria. Pandora impara automaticamente da segnali forti; puoi anche scrivere “ricorda che…”</p>:store.memories.map(m=><article className="memory" key={m.id}><div><b>{m.text}</b><small>{m.category} · {Math.round(m.confidence*100)}% · {new Date(m.createdAt).toLocaleDateString('it-IT')}</small></div><button onClick={()=>{setStore(s=>({...s,memories:s.memories.filter(x=>x.id!==m.id)}));log('memoria',`Eliminata: ${m.text}`)}}>×</button></article>)}</section>}
 
@@ -211,9 +250,18 @@ export default function Home(){
 
     {tab==='activity'&&<section className="panel"><div className="panelhead"><div><small>LEARNING & AUDIT</small><h2>Registro</h2></div><span>{store.activity.length}</span></div>{store.learning.slice(0,12).map(x=><div className="log" key={x.id}><i>impara</i><span>{x.text}</span><time>{Math.round(x.confidence*100)}% · {new Date(x.createdAt).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></div>)}{store.activity.slice(0,80).map(a=><div className="log" key={a.id}><i>{a.type}</i><span>{a.text}</span><time>{new Date(a.createdAt).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></div>)}{!store.activity.length&&!store.learning.length&&<p className="empty">Nessuna attività registrata.</p>}</section>}
 
-    {tab==='settings'&&<section className="panel settings"><div className="panelhead"><div><small>PHONE CONTROL PLANE</small><h2>Impostazioni</h2></div></div><div className="setting"><div><b>Apprendimento attivo</b><span>Pandora riconosce segnali espliciti e forti nelle conversazioni, assegna una confidenza e li consolida localmente. Non invia questi dati a servizi esterni.</span></div><strong>{store.learning.length}</strong></div><div className="setting"><div><b>Ipotesi da verificare</b><span>Per informazioni meno certe, Pandora crea un candidato invece di trasformarlo subito in memoria. Puoi confermarlo o scartarlo.</span></div><strong>{store.candidates.length}</strong></div><div className="setting"><div><b>Autonomia locale</b><span>Il ciclo lavora direttamente nel browser. Quando iOS sospende la PWA, JavaScript può fermarsi: è un limite del sistema operativo.</span></div><button className={`switch ${store.autonomy?'on':''}`} onClick={()=>{const n=!store.autonomy;setStore(s=>({...s,autonomy:n}));log('sistema',`Autonomia ${n?'attivata':'messa in pausa'}`)}}><span/></button></div><div className="setting"><div><b>Memoria</b><span>Persistente sul dispositivo tramite localStorage.</span></div><strong>{store.memories.length}</strong></div><div className="architecture"><b>Architettura v1.7 — Active Learning</b><p>iPhone → conversazione → riconoscimento → memoria → contesto → risposta → apprendimento → consolidamento.</p><small>Il cervello generativo può essere aggiunto in seguito come modulo locale opzionale. Il nucleo non dipende da un computer o da un'API AI esterna.</small></div><div className="danger"><div><b>Azzeramento locale</b><span>Cancella tutti i dati salvati su questo telefono.</span></div><button onClick={clearAll}>Cancella dati</button></div></section>}
-    <footer><span>Pandora v1.7</span><span>·</span><span>phone-first</span><span>·</span><span>active-learning</span></footer>
+    {tab==='settings'&&<section className="panel settings"><div className="panelhead"><div><small>PHONE CONTROL PLANE</small><h2>Impostazioni</h2></div></div><div className="setting"><div><b>Apprendimento attivo</b><span>Pandora riconosce segnali espliciti e forti nelle conversazioni, assegna una confidenza e li consolida localmente. Non invia questi dati a servizi esterni.</span></div><strong>{store.learning.length}</strong></div><div className="setting"><div><b>Ipotesi da verificare</b><span>Per informazioni meno certe, Pandora crea un candidato invece di trasformarlo subito in memoria. Puoi confermarlo o scartarlo.</span></div><strong>{store.candidates.length}</strong></div><div className="setting"><div><b>Autonomia locale</b><span>Il ciclo lavora direttamente nel browser. Quando iOS sospende la PWA, JavaScript può fermarsi: è un limite del sistema operativo.</span></div><button className={`switch ${store.autonomy?'on':''}`} onClick={()=>{const n=!store.autonomy;setStore(s=>({...s,autonomy:n}));log('sistema',`Autonomia ${n?'attivata':'messa in pausa'}`)}}><span/></button></div><div className="setting"><div><b>Memoria</b><span>Persistente sul dispositivo tramite localStorage.</span></div><strong>{store.memories.length}</strong></div><div className="architecture"><b>Architettura v1.8 — Active Learning + Research</b><p>iPhone → conversazione → memoria → ricerca → analisi → risposta → apprendimento → consolidamento.</p><small>Il cervello generativo può essere aggiunto in seguito come modulo locale opzionale. Il nucleo non dipende da un computer o da un'API AI esterna.</small></div><div className="danger"><div><b>Azzeramento locale</b><span>Cancella tutti i dati salvati su questo telefono.</span></div><button onClick={clearAll}>Cancella dati</button></div></section>}
+    <footer><span>Pandora v1.8</span><span>·</span><span>phone-first</span><span>·</span><span>active-learning</span></footer>
   </main>;
 }
 
 function TaskInput({onAdd}:{onAdd:(title:string)=>void}){const[v,setV]=useState('');const submit=()=>{if(v.trim()){onAdd(v);setV('')}};return <div className="addtask"><input value={v} onChange={e=>setV(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')submit()}} placeholder="Nuova attività…"/><button onClick={submit}>Aggiungi</button></div>}
+
+
+function ResearchPanel({query,setQuery,loading,run,researches,onSave}:{query:string;setQuery:(v:string)=>void;loading:boolean;run:()=>void;researches:Research[];onSave:(r:Research)=>void}){
+  return <section className="panel research"><div className="panelhead"><div><small>LOCAL RESEARCH ENGINE</small><h2>Ricerca & Analisi</h2></div><span>{researches.length}</span></div>
+    <p className="empty" style={{padding:'4px 4px 14px'}}>Inserisci una domanda. Pandora interroga una fonte web pubblica, raccoglie più risultati, estrae il testo disponibile e costruisce una prima sintesi. Le fonti restano visibili per verificare la risposta.</p>
+    <div className="researchbar"><input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')run()}} placeholder="Es. Come funziona la fotosintesi?"/><button onClick={run} disabled={loading||!query.trim()}>{loading?'…':'Cerca'}</button></div>
+    {researches.length===0?<p className="empty">Nessuna ricerca ancora. Questo modulo è pensato per trasformare Pandora da semplice assistente in uno strumento di ricerca verificabile.</p>:researches.map(r=><article className="research-card" key={r.id}><div className="research-head"><div><small>{new Date(r.createdAt).toLocaleString('it-IT')}</small><h3>{r.query}</h3></div><button onClick={()=>onSave(r)}>+ Memoria</button></div><p>{r.summary||'Nessuna sintesi disponibile.'}</p><div className="keywords">{r.keywords.map(k=><span key={k}>{k}</span>)}</div><details><summary>{r.sources.length} fonti consultate</summary>{r.sources.map(s=><div className="source" key={s.id}><a href={s.url} target="_blank" rel="noreferrer">{s.title}</a><small>{s.source}</small><p>{s.extract}</p></div>)}</details></article>)}
+  </section>
+}
