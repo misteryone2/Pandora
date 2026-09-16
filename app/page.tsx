@@ -7,24 +7,30 @@ type Memory = { id:string; text:string; category:string; confidence:number; crea
 type Task = { id:string; title:string; done:boolean; createdAt:string; priority:number };
 type Message = { id:string; role:'user'|'pandora'; text:string; createdAt:string; mode?:string };
 type Activity = { id:string; type:string; text:string; createdAt:string };
-type Learning = { id:string; text:string; kind:string; confidence:number; createdAt:string; evidence?:number; status?:'consolidated'|'candidate' };
+type LearningStatus = 'consolidated' | 'candidate';
+type Learning = { id:string; text:string; kind:string; confidence:number; createdAt:string; evidence:number; status:LearningStatus };
 type Candidate = { id:string; text:string; kind:string; confidence:number; source:string; createdAt:string };
 type ResearchSource = { id:string; title:string; url:string; extract:string; source:string; fetchedAt:string };
 type Research = { id:string; query:string; createdAt:string; sources:ResearchSource[]; summary:string; keywords:string[] };
 
 type Store = { memories:Memory[]; tasks:Task[]; messages:Message[]; activity:Activity[]; learning:Learning[]; candidates:Candidate[]; researches:Research[]; autonomy:boolean; cycles:number; actions:number };
 
-const KEY='pandora.phone.v1.8';
-const LEGACY_KEY='pandora.phone.v1';
+const KEY='pandora.phone.v1.9';
+const LEGACY_KEYS=['pandora.phone.v1.8','pandora.phone.v1'];
 const id=()=>crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const iso=()=>new Date().toISOString();
 const empty:Store={memories:[],tasks:[],messages:[],activity:[],learning:[],candidates:[],researches:[],autonomy:true,cycles:0,actions:0};
 
+// Single construction point for Learning records. Keeping the status union here
+// prevents TypeScript from widening object-literal values to plain `string`.
+const makeLearning=(text:string,kind:string,confidence:number,status:LearningStatus='consolidated',evidence=1):Learning=>({id:id(),text,kind,confidence,createdAt:iso(),evidence,status});
+
 function readStore():Store {
   try {
-    const x=localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY); if(!x)return empty;
+    const x=localStorage.getItem(KEY) || LEGACY_KEYS.map(k=>localStorage.getItem(k)).find(Boolean); if(!x)return empty;
     const p=JSON.parse(x);
-    return {...empty,...p,memories:p.memories||[],tasks:p.tasks||[],messages:p.messages||[],activity:p.activity||[],learning:p.learning||[],candidates:p.candidates||[],researches:p.researches||[]};
+    const learning=(p.learning||[]).map((x:any)=>makeLearning(String(x.text||''),String(x.kind||'generale'),Number.isFinite(x.confidence)?x.confidence:.5,x.status==='candidate'?'candidate':'consolidated',Number.isFinite(x.evidence)?x.evidence:1));
+    return {...empty,...p,memories:p.memories||[],tasks:p.tasks||[],messages:p.messages||[],activity:p.activity||[],learning,candidates:p.candidates||[],researches:p.researches||[]};
   } catch { return empty; }
 }
 function writeStore(s:Store){try{localStorage.setItem(KEY,JSON.stringify(s));}catch{}}
@@ -59,16 +65,16 @@ export default function Home(){
 
   const log=(type:string,text:string)=>setStore(s=>({...s,activity:[{id:id(),type,text,createdAt:iso()},...s.activity].slice(0,150)}));
 
-  const addLearning=(text:string,kind:string,confidence:number,status:'consolidated'|'candidate'='consolidated',source='conversazione')=>setStore(s=>({...s,learning:[{id:id(),text,kind,confidence,createdAt:iso(),evidence:1,status},...s.learning].slice(0,300)}));
+  const addLearning=(text:string,kind:string,confidence:number,status:LearningStatus='consolidated',source='conversazione')=>setStore(s=>({...s,learning:[makeLearning(text,kind,confidence,status),...s.learning].slice(0,300)}));
 
   const rememberFact=(fact:string,category='Memoria',confidence=.8,source='conversazione')=>{
     const clean=fact.trim();if(!clean)return;
     setStore(s=>{
       const old=s.memories.find(m=>m.text.toLowerCase()===clean.toLowerCase());
       if(old){
-        return {...s,memories:s.memories.map(m=>m.id===old.id?{...m,confidence:Math.min(1,m.confidence+.05),updatedAt:iso()}:m),learning:[{id:id(),text:`Memoria rinforzata: ${clean}`,kind:'memoria',confidence:Math.min(1,old.confidence+.05),createdAt:iso(),evidence:2,status:'consolidated'},...s.learning].slice(0,300)};
+        return {...s,memories:s.memories.map(m=>m.id===old.id?{...m,confidence:Math.min(1,m.confidence+.05),updatedAt:iso()}:m),learning:[makeLearning(`Memoria rinforzata: ${clean}`,'memoria',Math.min(1,old.confidence+.05),'consolidated',2),...s.learning].slice(0,300)};
       }
-      return {...s,memories:[{id:id(),text:clean,category,confidence,createdAt:iso()},...s.memories].slice(0,300),learning:[{id:id(),text:`Nuova memoria: ${clean}`,kind:'memoria',confidence,createdAt:iso(),evidence:1,status:'consolidated'},...s.learning].slice(0,300)};
+      return {...s,memories:[{id:id(),text:clean,category,confidence,createdAt:iso()},...s.memories].slice(0,300),learning:[makeLearning(`Nuova memoria: ${clean}`,'memoria',confidence,'consolidated',1),...s.learning].slice(0,300)};
     });
     log('apprendimento',`${source}: ${clean}`);
   };
@@ -78,7 +84,7 @@ export default function Home(){
     setStore(s=>{
       const exists=s.candidates.find(c=>c.text.toLowerCase()===clean.toLowerCase());
       if(exists)return {...s,candidates:s.candidates.map(c=>c.id===exists.id?{...c,confidence:Math.min(1,c.confidence+.05)}:c)};
-      return {...s,candidates:[{id:id(),text:clean,kind,confidence,source,createdAt:iso()},...s.candidates].slice(0,40),learning:[{id:id(),text:`Candidato: ${clean}`,kind,confidence,createdAt:iso(),evidence:1,status:'candidate'},...s.learning].slice(0,300)};
+      return {...s,candidates:[{id:id(),text:clean,kind,confidence,source,createdAt:iso()},...s.candidates].slice(0,40),learning:[makeLearning(`Candidato: ${clean}`,kind,confidence,'candidate',1),...s.learning].slice(0,300)};
     });
     log('apprendimento',`Candidato da verificare: ${clean}`);
   };
@@ -89,7 +95,7 @@ export default function Home(){
   };
 
   const rejectCandidate=(candidate:Candidate)=>{
-    setStore(s=>({...s,candidates:s.candidates.filter(c=>c.id!==candidate.id),learning:[{id:id(),text:`Scartato: ${candidate.text}`,kind:'correzione',confidence:1,createdAt:iso(),evidence:1,status:'candidate'},...s.learning].slice(0,300)}));
+    setStore(s=>({...s,candidates:s.candidates.filter(c=>c.id!==candidate.id),learning:[makeLearning(`Scartato: ${candidate.text}`,'correzione',1,'candidate',1),...s.learning].slice(0,300)}));
     log('apprendimento',`Candidato scartato: ${candidate.text}`);
   };
 
@@ -234,7 +240,7 @@ export default function Home(){
   const clearAll=()=>{if(confirm('Eliminare memoria, attività, conversazioni e registro locali?'))setStore({...empty,messages:[]});};
 
   return <main>
-    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className="status ai">● Telefono</span><span className="version">v1.8</span></div></header>
+    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className="status ai">● Telefono</span><span className="version">v1.9</span></div></header>
     <section className="hero"><div><small>STATO DEL SISTEMA</small><h2>{store.autonomy?'Nucleo operativo.':'Autonomia in pausa.'}</h2><p>Conversazione, memoria e apprendimento avvengono localmente sul telefono.</p></div><div className="stats"><div><b>{store.memories.length}</b><span>memorie</span></div><div><b>{pending}</b><span>aperte</span></div><div><b>{store.learning.length}</b><span>appresi</span></div></div></section>
     <nav className="tabs">{(['chat','research','memory','tasks','activity','settings'] as Tab[]).map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{x==='chat'?'Pandora':x==='research'?'Ricerca':x==='memory'?'Memoria':x==='tasks'?'Attività':x==='activity'?'Registro':'Impostazioni'}</button>)}</nav>
 
@@ -250,8 +256,8 @@ export default function Home(){
 
     {tab==='activity'&&<section className="panel"><div className="panelhead"><div><small>LEARNING & AUDIT</small><h2>Registro</h2></div><span>{store.activity.length}</span></div>{store.learning.slice(0,12).map(x=><div className="log" key={x.id}><i>impara</i><span>{x.text}</span><time>{Math.round(x.confidence*100)}% · {new Date(x.createdAt).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></div>)}{store.activity.slice(0,80).map(a=><div className="log" key={a.id}><i>{a.type}</i><span>{a.text}</span><time>{new Date(a.createdAt).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></div>)}{!store.activity.length&&!store.learning.length&&<p className="empty">Nessuna attività registrata.</p>}</section>}
 
-    {tab==='settings'&&<section className="panel settings"><div className="panelhead"><div><small>PHONE CONTROL PLANE</small><h2>Impostazioni</h2></div></div><div className="setting"><div><b>Apprendimento attivo</b><span>Pandora riconosce segnali espliciti e forti nelle conversazioni, assegna una confidenza e li consolida localmente. Non invia questi dati a servizi esterni.</span></div><strong>{store.learning.length}</strong></div><div className="setting"><div><b>Ipotesi da verificare</b><span>Per informazioni meno certe, Pandora crea un candidato invece di trasformarlo subito in memoria. Puoi confermarlo o scartarlo.</span></div><strong>{store.candidates.length}</strong></div><div className="setting"><div><b>Autonomia locale</b><span>Il ciclo lavora direttamente nel browser. Quando iOS sospende la PWA, JavaScript può fermarsi: è un limite del sistema operativo.</span></div><button className={`switch ${store.autonomy?'on':''}`} onClick={()=>{const n=!store.autonomy;setStore(s=>({...s,autonomy:n}));log('sistema',`Autonomia ${n?'attivata':'messa in pausa'}`)}}><span/></button></div><div className="setting"><div><b>Memoria</b><span>Persistente sul dispositivo tramite localStorage.</span></div><strong>{store.memories.length}</strong></div><div className="architecture"><b>Architettura v1.8 — Active Learning + Research</b><p>iPhone → conversazione → memoria → ricerca → analisi → risposta → apprendimento → consolidamento.</p><small>Il cervello generativo può essere aggiunto in seguito come modulo locale opzionale. Il nucleo non dipende da un computer o da un'API AI esterna.</small></div><div className="danger"><div><b>Azzeramento locale</b><span>Cancella tutti i dati salvati su questo telefono.</span></div><button onClick={clearAll}>Cancella dati</button></div></section>}
-    <footer><span>Pandora v1.8</span><span>·</span><span>phone-first</span><span>·</span><span>active-learning</span></footer>
+    {tab==='settings'&&<section className="panel settings"><div className="panelhead"><div><small>PHONE CONTROL PLANE</small><h2>Impostazioni</h2></div></div><div className="setting"><div><b>Apprendimento attivo</b><span>Pandora riconosce segnali espliciti e forti nelle conversazioni, assegna una confidenza e li consolida localmente. Non invia questi dati a servizi esterni.</span></div><strong>{store.learning.length}</strong></div><div className="setting"><div><b>Ipotesi da verificare</b><span>Per informazioni meno certe, Pandora crea un candidato invece di trasformarlo subito in memoria. Puoi confermarlo o scartarlo.</span></div><strong>{store.candidates.length}</strong></div><div className="setting"><div><b>Autonomia locale</b><span>Il ciclo lavora direttamente nel browser. Quando iOS sospende la PWA, JavaScript può fermarsi: è un limite del sistema operativo.</span></div><button className={`switch ${store.autonomy?'on':''}`} onClick={()=>{const n=!store.autonomy;setStore(s=>({...s,autonomy:n}));log('sistema',`Autonomia ${n?'attivata':'messa in pausa'}`)}}><span/></button></div><div className="setting"><div><b>Memoria</b><span>Persistente sul dispositivo tramite localStorage.</span></div><strong>{store.memories.length}</strong></div><div className="architecture"><b>Architettura v1.9 — Active Learning + Research</b><p>iPhone → conversazione → memoria → ricerca → analisi → risposta → apprendimento → consolidamento.</p><small>Il cervello generativo può essere aggiunto in seguito come modulo locale opzionale. Il nucleo non dipende da un computer o da un'API AI esterna.</small></div><div className="danger"><div><b>Azzeramento locale</b><span>Cancella tutti i dati salvati su questo telefono.</span></div><button onClick={clearAll}>Cancella dati</button></div></section>}
+    <footer><span>Pandora v1.9</span><span>·</span><span>phone-first</span><span>·</span><span>active-learning</span></footer>
   </main>;
 }
 
