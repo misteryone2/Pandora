@@ -1,8 +1,8 @@
-# Pandora v1.8 — Phone First / Active Learning
+# Pandora v1.9 — Phone First / Active Learning
 
 Pandora è una PWA progettata per essere utilizzata direttamente da iPhone senza un PC, un server locale o un'API AI cloud.
 
-## Cosa aggiunge v1.8
+## Cosa aggiunge v1.9
 
 - **Risposte contestuali**: Pandora usa le memorie pertinenti e gli ultimi messaggi per evitare risposte isolate.
 - **Apprendimento attivo locale**: riconosce segnali espliciti o forti come preferenze, vincoli, profilo e possibili obiettivi.
@@ -40,5 +40,12 @@ Per una memoria esplicita puoi sempre usare `Ricorda che ...`.
 
 Questa versione implementa un **motore cognitivo locale deterministico**. Non è ancora un LLM generativo eseguito sul telefono. La struttura è stata preparata affinché un modello locale on-device possa essere aggiunto in seguito senza rendere il cloud una dipendenza.
 
-## v1.8 — Ricerca & Analisi
+## v1.9 — Ricerca & Analisi
 Pandora aggiunge un motore di ricerca phone-first: una domanda può interrogare Wikipedia pubblica direttamente dal browser, raccogliere più risultati, conservarne titolo/URL/estratto, costruire una sintesi locale e salvare una ricerca nella memoria. Le fonti restano visibili per la verifica. Il motore non usa un'API AI cloud.
+
+
+## v1.9 — stabilizzazione Active Learning
+- Corretto definitivamente il type error TypeScript su `Learning.status`.
+- Tutti i record `Learning` vengono creati tramite `makeLearning`, con `LearningStatus` tipizzato.
+- I dati precedenti vengono normalizzati durante la migrazione da v1.8/v1.
+- Ricerca locale/web di v1.8 mantenuta.
