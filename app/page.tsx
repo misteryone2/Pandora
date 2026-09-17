@@ -14,6 +14,25 @@ type Candidate = { id:string; text:string; kind:string; confidence:number; sourc
 type ResearchSource = { id:string; title:string; url:string; extract:string; source:string; fetchedAt:string };
 type Research = { id:string; query:string; createdAt:string; sources:ResearchSource[]; summary:string; keywords:string[] };
 type GovernorState = 'idle'|'thinking'|'acting'|'verifying'|'waiting'|'blocked';
+
+type SpeechRecognitionResultEvent = Event & { results: ArrayLike<ArrayLike<{ transcript?: string }>> };
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: SpeechRecognitionResultEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
 type Store = { memories:Memory[]; tasks:Task[]; messages:Message[]; activity:Activity[]; learning:Learning[]; candidates:Candidate[]; researches:Research[]; autonomy:boolean; cycles:number; actions:number; governor:GovernorState; lastDecision:string; failureStreak:number; blockedUntil:number };
 
 const KEY='pandora.phone.v2';
@@ -45,7 +64,7 @@ export default function Home(){
   const [researchLoading,setResearchLoading]=useState(false);
   const [voiceListening,setVoiceListening]=useState(false);
   const [voiceSpeaking,setVoiceSpeaking]=useState(false);
-  const recognitionRef=useRef<SpeechRecognition|null>(null);
+  const recognitionRef=useRef<SpeechRecognitionLike|null>(null);
   const voiceReplyRef=useRef(false);
   const autonomyLock=useRef(false);
   const autonomyTimer=useRef<number|null>(null);
@@ -116,9 +135,9 @@ export default function Home(){
 
   const speak=useCallback((text:string)=>{if(!('speechSynthesis'in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='it-IT';u.rate=.98;u.onstart=()=>setVoiceSpeaking(true);u.onend=()=>setVoiceSpeaking(false);u.onerror=()=>setVoiceSpeaking(false);window.speechSynthesis.speak(u);},[]);
 
-  const send=useCallback(async(textOverride?:string,fromVoice=false)=>{const text=(textOverride??input).trim();if(!text||loading)return;setLoading(true);const u:Message={id:id(),role:'user',text,createdAt:iso(),mode:fromVoice?'voice':'phone-local'};setStore(s=>({...s,messages:[...s.messages,u].slice(-120),governor:'thinking'}));if(!textOverride)setInput('');log('conversazione',`Messaggio ricevuto: ${text.slice(0,100)}`);await new Promise(r=>setTimeout(r,80));const reply=answer(text);setStore(s=>({...s,messages:[...s.messages,{id:id(),role:'pandora',text:reply,createdAt:iso(),mode:fromVoice?'voice':'phone-local'}].slice(-120),governor:'verifying',actions:s.actions+1,lastDecision:`reply:${text.slice(0,80)}`}));setLoading(false);scheduleAutonomy('risposta completata');if(fromVoice)window.setTimeout(()=>speak(reply),50);},[answer,input,loading,log,scheduleAutonomy,speak]);
+  const send=useCallback(async(textOverride?:string,fromVoice=false)=>{const text=(textOverride??input).trim();if(!text||loading)return;setLoading(true);const u:Message={id:id(),role:'user',text,createdAt:iso(),mode:fromVoice?'voice':'phone-local'};setStore(s=>({...s,messages:[...s.messages,u].slice(-120),governor:'thinking'}));if(!textOverride)setInput('');log('conversazione',`Messaggio ricevuto: ${text.slice(0,100)}`);await new Promise(r=>setTimeout(r,80));const reply=answer(text);setStore(s=>{const replyMessage:Message={id:id(),role:'pandora',text:reply,createdAt:iso(),mode:fromVoice?'voice':'phone-local'};return {...s,messages:[...s.messages,replyMessage].slice(-120),governor:'verifying',actions:s.actions+1,lastDecision:`reply:${text.slice(0,80)}`};});setLoading(false);scheduleAutonomy('risposta completata');if(fromVoice)window.setTimeout(()=>speak(reply),50);},[answer,input,loading,log,scheduleAutonomy,speak]);
 
-  const startVoice=()=>{const C=window.SpeechRecognition||window.webkitSpeechRecognition;if(!C){log('voce','Riconoscimento vocale non disponibile nel browser.');return;}if(voiceListening){recognitionRef.current?.stop();return;}const r=new C();r.lang='it-IT';r.interimResults=false;r.continuous=false;r.onresult=(e)=>{const text=e.results[0]?.[0]?.transcript?.trim();if(text){voiceReplyRef.current=true;send(text,true);}};r.onend=()=>{setVoiceListening(false);recognitionRef.current=null;};r.onerror=()=>{setVoiceListening(false);recognitionRef.current=null;log('voce','Riconoscimento vocale terminato.');};recognitionRef.current=r;setVoiceListening(true);try{r.start();}catch{setVoiceListening(false);recognitionRef.current=null;}};
+  const startVoice=()=>{const C=window.SpeechRecognition||window.webkitSpeechRecognition;if(!C){log('voce','Riconoscimento vocale non disponibile nel browser.');return;}if(voiceListening){recognitionRef.current?.stop();return;}const r=new C();r.lang='it-IT';r.interimResults=false;r.continuous=false;r.onresult=(e:SpeechRecognitionResultEvent)=>{const text=e.results[0]?.[0]?.transcript?.trim();if(text){voiceReplyRef.current=true;send(text,true);}};r.onend=()=>{setVoiceListening(false);recognitionRef.current=null;};r.onerror=()=>{setVoiceListening(false);recognitionRef.current=null;log('voce','Riconoscimento vocale terminato.');};recognitionRef.current=r;setVoiceListening(true);try{r.start();}catch{setVoiceListening(false);recognitionRef.current=null;}};
 
   const [researches,setResearches]=useState<Research[]>([]);useEffect(()=>{if(hydrated)setResearches(store.researches)},[hydrated,store.researches]);
   const makeKeywords=(text:string)=>Array.from(new Set(text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9à-ÿ]+/).filter(w=>w.length>4))).slice(0,12);
