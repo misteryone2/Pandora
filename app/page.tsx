@@ -113,29 +113,102 @@ export default function Home(){
 
   const addTask=(title:string)=>{const clean=title.trim();if(!clean)return;setStore(s=>({...s,tasks:[{id:id(),title:clean,done:false,createdAt:iso(),priority:1},...s.tasks]}));log('attività',`Creata attività: ${clean}`);scheduleAutonomy('nuova attività');};
 
-  const answer=(text:string):string=>{
-    const explicit=explicitMemory(text);if(explicit)return explicit;
-    const inferred=inferLearning(text);const l=text.toLowerCase().trim();const rel=relevant(text);const recent=store.messages.filter(m=>m.role==='user').slice(-4).map(m=>m.text);
-    if(/^(ciao|salve|hey|buongiorno|buonasera)\b/i.test(l))return rel.length?`Ciao! Ho ritrovato questo collegamento: ${rel[0].text}.`:'Ciao! Sono qui. Posso usare memoria, contesto, ricerca, attività e voce, restando locale per il nucleo.';
-    if(l.includes('cosa puoi fare')||l.includes('cosa sai fare'))return'Posso conversare, ricordare, distinguere fatti da ipotesi, collegare il contesto, gestire attività, fare ricerca verificabile e usare la voce quando il dispositivo/browser la supporta. L’autonomia decide anche quando non fare nulla.';
-    if(l.includes('cosa ricordi')||l.includes('cosa sai di me')){const mem=store.memories.length?`Memorie consolidate:\n${store.memories.slice(0,15).map(m=>`• ${m.text} (${Math.round(m.confidence*100)}%, ${m.evidence} evidenze)`).join('\n')}`:'Non ho ancora memorie consolidate.';const cand=store.candidates.length?`\n\nIn verifica:\n${store.candidates.slice(0,6).map(c=>`• ${c.text}`).join('\n')}`:'';return mem+cand;}
-    if(l.includes('stato')&&l.includes('autonomia'))return`Governor: ${store.governor}. Cicli: ${store.cycles}. Azioni: ${store.actions}. ${store.memories.length} memorie, ${store.learning.length} apprendimenti, ${store.tasks.filter(t=>!t.done).length} attività aperte.`;
-    if(/^(?:aggiungi|crea|metti)\s+(?:un[ae]?\s+)?attivit[aà]/i.test(text)){const title=text.replace(/^(?:aggiungi|crea|metti)\s+(?:un[ae]?\s+)?attivit[aà]\s*:?[ ]*/i,'').trim();if(title){addTask(title);return`Attività aggiunta: ${title}. Pandora la terrà nel contesto senza avviare azioni ripetitive.`;}}
-    if(l.includes('quante attività')||l.includes('quante attivita'))return`Hai ${store.tasks.filter(t=>!t.done).length} attività aperte.`;
-    if(l.includes('elenca')&&l.includes('attivit'))return store.tasks.filter(t=>!t.done).length?store.tasks.filter(t=>!t.done).map((t,i)=>`${i+1}. ${t.title}`).join('\n'): 'Non hai attività aperte.';
-    if(/^(non è vero|non e vero|sbagliato|non è così|non e cosi)\b/i.test(l)){const last=store.memories[0];if(last){setStore(s=>({...s,memories:s.memories.filter(m=>m.id!==last.id),governor:'verifying'}));log('correzione',`Memoria rimossa dopo correzione: ${last.text}`);return`Ricevuto. Ho rimosso l’ultima memoria consolidata (“${last.text}”). Dimmi quale informazione è corretta.`;}return'Ricevuto. Dimmi cosa devo correggere.';}
+  const answer=async(text:string):Promise<string>=>{
+    const l=text.toLowerCase().trim();
+
+    // 1) Explicit correction: update the most relevant memory instead of blindly deleting the newest one.
+    if(/^(non è vero|non e vero|sbagliato|non è così|non e cosi)\b/i.test(l)){
+      const lastUser=store.messages.filter(m=>m.role==='user').slice(-2,-1)[0]?.text;
+      const target=relevant(lastUser||'')[0]||store.memories[0];
+      if(target){
+        setStore(s=>({...s,memories:s.memories.filter(m=>m.id!==target.id),learning:[makeLearning(`Corretta memoria: ${target.text}`,'correzione',1,'consolidated',1),...s.learning].slice(0,300),governor:'verifying'}));
+        log('correzione',`Memoria corretta: ${target.text}`);
+        return `Ho identificato la memoria collegata e l'ho rimossa: “${target.text}”. Ora puoi indicarmi il dato corretto.`;
+      }
+      return 'Non trovo una memoria collegata da correggere. Dimmi direttamente quale informazione devo sostituire.';
+    }
+
+    // 2) Explicit memory always wins over generic conversation handling.
+    const explicit=explicitMemory(text); if(explicit)return explicit;
+    const inferred=inferLearning(text);
+
+    // 3) Stable self/context queries.
+    if(l.includes('cosa ricordi')||l.includes('cosa sai di me')){
+      if(!store.memories.length)return 'Al momento non ho memorie consolidate su di te. Posso però usare il contesto di questa conversazione e imparare informazioni che mi chiedi esplicitamente di ricordare.';
+      return `Queste sono le informazioni che ho memorizzato:\n${store.memories.slice(0,15).map(m=>`• ${m.text} (${Math.round(m.confidence*100)}%, ${m.evidence} evidenze)`).join('\n')}`;
+    }
+    if(l.includes('come preferisco')||l.includes('quale è la mia preferenza')||l.includes('qual è la mia preferenza')){
+      const prefs=store.memories.filter(m=>/preferenza/i.test(m.category)||/preferisci|preferisco|piace|non ti piace/i.test(m.text));
+      return prefs.length?`La preferenza che risulta attualmente memorizzata è: ${prefs[0].text}.`:'Non ho una preferenza consolidata su questo punto.';
+    }
+    if(l.includes('cosa stavamo facendo')||l.includes('dove eravamo rimasti')){
+      const recent=store.messages.filter(m=>m.role==='user').slice(-6).map(m=>m.text);
+      const open=store.tasks.filter(t=>!t.done);
+      return `Contesto attuale: stiamo costruendo Pandora come assistente personale autonomo. Le ultime richieste trattavano memoria, autonomia, ricerca e voce.${open.length?` Hai inoltre ${open.length} attività aperte: ${open.slice(0,3).map(t=>t.title).join(', ')}.`:''} ${recent.length?`Ultimo tema: “${recent[recent.length-1]}”.`:''}`;
+    }
+
+    // 4) Ask for missing information instead of pretending to know an unspecified goal.
+    if(/ho un obiettivo ma non|non ti dirò ancora quale|non ti diro ancora quale/i.test(l)){
+      return 'Per aiutarti senza inventare, mi servono almeno: obiettivo, risultato desiderato, scadenza (se esiste), vincoli e risorse/strumenti disponibili. Finché manca l’obiettivo non eseguo azioni arbitrarie.';
+    }
+
+    // 5) Planning: use existing tasks; do not invent work.
+    if(l.includes('organizza il mio lavoro')||l.includes('organizza il lavoro')||l.includes('pianifica il mio lavoro')){
+      const open=store.tasks.filter(t=>!t.done).sort((a,b)=>b.priority-a.priority);
+      if(!open.length)return 'Non ho ancora attività concrete da organizzare. Per non inventare lavoro, dimmi le attività o collegami a una fonte da cui recuperarle.';
+      return `Piano operativo:\n${open.slice(0,8).map((t,i)=>`${i+1}. ${t.title}`).join('\n')}\n\nOrdine basato sulle priorità disponibili. Non modifico né completo attività senza una richiesta o uno strumento autorizzato.`;
+    }
+
+    // 6) Autonomous status: report and allow idle as a valid decision.
+    if(l.includes('controlla')&&l.includes('intervento')){
+      const open=store.tasks.filter(t=>!t.done);
+      if(!open.length)return 'Controllo completato: non rilevo attività aperte che richiedano un intervento. Rimango in attesa.';
+      return `Controllo completato: ci sono ${open.length} attività aperte. La più prioritaria è “${open.sort((a,b)=>b.priority-a.priority)[0].title}”. Non eseguo azioni esterne senza autorizzazione.`;
+    }
+
+    // 7) Research request from chat: execute the local research engine instead of merely acknowledging it.
+    if(/\b(cerca|ricerca|informazioni|approfondisci)\b/i.test(l) && /pandora|progetto|assistente|autonom/i.test(l)){
+      const q=text.replace(/^.*?\b(?:su|sul|sulla|riguardo a|per)\b\s*/i,'').trim() || 'tecnologie per un assistente personale autonomo locale';
+      try{
+        const url=`https://it.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=6&prop=extracts&exintro=1&explaintext=1&format=json&origin=*`;
+        const rr=await fetch(url); if(!rr.ok)throw new Error('research');
+        const data=await rr.json();
+        const pages=Object.values(data.query?.pages||{}) as any[];
+        const sources:ResearchSource[]=pages.map((x:any)=>({id:id(),title:x.title||'Senza titolo',url:`https://it.wikipedia.org/wiki/${encodeURIComponent((x.title||'').replace(/ /g,'_'))}`,extract:String(x.extract||'').slice(0,1200),source:'Wikipedia',fetchedAt:iso()})).filter(x=>x.extract);
+        const result:Research={id:id(),query:q,createdAt:iso(),sources,summary:buildSummary(q,sources),keywords:makeKeywords(q)};
+        setStore(s=>({...s,researches:[result,...s.researches].slice(0,30),activity:[{id:id(),type:'ricerca',text:`Ricerca da chat completata: ${q} · ${sources.length} fonti`,createdAt:iso()},...s.activity].slice(0,180)}));
+        return sources.length?`Ho eseguito la ricerca su “${q}”. Ho trovato ${sources.length} fonti e prodotto questa sintesi:\n\n${result.summary}`:'La ricerca non ha restituito fonti utilizzabili.';
+      }catch{return 'Ho provato a eseguire la ricerca, ma in questo momento la fonte web non è raggiungibile. Non considero la ricerca completata.';}
+    }
+
+    if(l.includes('autovaluta')||l.includes('analizza tutto quello')||l.includes('trova eventuali problemi')){
+      const problems:string[]=[];
+      if(store.memories.length===0)problems.push('memoria consolidata ancora vuota');
+      if(store.tasks.length===0)problems.push('nessuna attività concreta disponibile per la pianificazione');
+      if(store.researches.length===0)problems.push('nessuna ricerca ancora eseguita');
+      const p=problems.length?problems.map(x=>`• ${x}`).join('\n'):'Non rilevo lacune evidenti nei moduli locali disponibili.';
+      return `Autovalutazione:\n${p}\n\nProssimo passo utile: collegare planner, strumenti autorizzati e verifica dei risultati al Governor. Non considero completata un’azione finché il risultato non è verificato.`;
+    }
+
+    if(l.includes('stato')&&l.includes('autonomia'))return `Governor: ${store.governor}. Cicli: ${store.cycles}. Azioni: ${store.actions}. ${store.memories.length} memorie, ${store.learning.length} apprendimenti, ${store.tasks.filter(t=>!t.done).length} attività aperte.`;
+    if(/^(?:aggiungi|crea|metti)\s+(?:un[ae]?\s+)?attivit[aà]/i.test(text)){const title=text.replace(/^(?:aggiungi|crea|metti)\s+(?:un[ae]?\s+)?attivit[aà]\s*:?[ ]*/i,'').trim();if(title){addTask(title);return `Attività aggiunta: ${title}.`;}}
+    if(l.includes('quante attività')||l.includes('quante attivita'))return `Hai ${store.tasks.filter(t=>!t.done).length} attività aperte.`;
+    if(l.includes('elenca')&&l.includes('attivit'))return store.tasks.filter(t=>!t.done).length?store.tasks.filter(t=>!t.done).map((t,i)=>`${i+1}. ${t.title}`).join('\n'):'Non hai attività aperte.';
     if(inferred?.kind==='obiettivo')return inferred.strong?`Ho registrato l’informazione. Posso trasformarla in un’attività quando me lo chiedi.`:`Ho rilevato un possibile obiettivo: “${inferred.value}”. Lo tengo come candidato, non come certezza.`;
-    if(inferred?.kind==='interesse')return`Ho rilevato un possibile interesse per “${inferred.value}”. Per ora resta un candidato.`;
-    if(inferred?.kind==='vincolo')return`Capito. Terrò conto di questo vincolo: “${inferred.value}”.`;
-    if(rel.length)return`Questa richiesta si collega a: ${rel.map(m=>m.text).join('; ')}.`;
-    if(recent.length>=2)return`Sto seguendo il filo: prima “${recent[recent.length-2].slice(0,100)}”, ora “${text.slice(0,130)}”. Posso trattarle come parte dello stesso contesto.`;
-    if(/\?$/.test(text.trim()))return'Posso analizzare la richiesta con il contesto locale disponibile. Per una risposta documentata posso usare il motore di ricerca.';
-    return`Ti ascolto. Ho registrato il contesto di questa conversazione e valuterò se richiede memoria, attività, ricerca o semplicemente una risposta.`;
+    if(inferred?.kind==='interesse')return `Ho rilevato un possibile interesse per “${inferred.value}”. Per ora resta un candidato.`;
+    if(inferred?.kind==='vincolo')return `Capito. Terrò conto di questo vincolo: “${inferred.value}”.`;
+
+    const rel=relevant(text);
+    if(/^(ciao|salve|hey|buongiorno|buonasera)\b/i.test(l))return 'Ciao. Sono pronta.';
+    if(l.includes('cosa puoi fare')||l.includes('cosa sai fare'))return 'Posso gestire memoria, contesto, attività, ricerca e voce. Prima di agire verifico ciò che so, ciò che manca e se l’azione è autorizzata.';
+    if(rel.length)return `Ho trovato nella memoria un’informazione pertinente: ${rel.map(m=>m.text).join('; ')}.`;
+    if(/\?$/.test(text.trim()))return 'Mi manca abbastanza contesto per rispondere con precisione. Posso usare memoria, attività o ricerca se sono pertinenti.';
+    return 'Ho ricevuto la richiesta. La valuto rispetto a contesto, memoria, obiettivi e azioni disponibili prima di decidere il prossimo passo.';
   };
 
   const speak=useCallback((text:string)=>{if(!('speechSynthesis'in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='it-IT';u.rate=.98;u.onstart=()=>setVoiceSpeaking(true);u.onend=()=>setVoiceSpeaking(false);u.onerror=()=>setVoiceSpeaking(false);window.speechSynthesis.speak(u);},[]);
 
-  const send=useCallback(async(textOverride?:string,fromVoice=false)=>{const text=(textOverride??input).trim();if(!text||loading)return;setLoading(true);const u:Message={id:id(),role:'user',text,createdAt:iso(),mode:fromVoice?'voice':'phone-local'};setStore(s=>({...s,messages:[...s.messages,u].slice(-120),governor:'thinking'}));if(!textOverride)setInput('');log('conversazione',`Messaggio ricevuto: ${text.slice(0,100)}`);await new Promise(r=>setTimeout(r,80));const reply=answer(text);setStore(s=>{const replyMessage:Message={id:id(),role:'pandora',text:reply,createdAt:iso(),mode:fromVoice?'voice':'phone-local'};return {...s,messages:[...s.messages,replyMessage].slice(-120),governor:'verifying',actions:s.actions+1,lastDecision:`reply:${text.slice(0,80)}`};});setLoading(false);scheduleAutonomy('risposta completata');if(fromVoice)window.setTimeout(()=>speak(reply),50);},[answer,input,loading,log,scheduleAutonomy,speak]);
+  const send=useCallback(async(textOverride?:string,fromVoice=false)=>{const text=(textOverride??input).trim();if(!text||loading)return;setLoading(true);const u:Message={id:id(),role:'user',text,createdAt:iso(),mode:fromVoice?'voice':'phone-local'};setStore(s=>({...s,messages:[...s.messages,u].slice(-120),governor:'thinking'}));if(!textOverride)setInput('');log('conversazione',`Messaggio ricevuto: ${text.slice(0,100)}`);await new Promise(r=>setTimeout(r,80));const reply=await answer(text);setStore(s=>{const replyMessage:Message={id:id(),role:'pandora',text:reply,createdAt:iso(),mode:fromVoice?'voice':'phone-local'};return {...s,messages:[...s.messages,replyMessage].slice(-120),governor:'verifying',actions:s.actions+1,lastDecision:`reply:${text.slice(0,80)}`};});setLoading(false);scheduleAutonomy('risposta completata');if(fromVoice)window.setTimeout(()=>speak(reply),50);},[answer,input,loading,log,scheduleAutonomy,speak]);
 
   const startVoice=()=>{const C=window.SpeechRecognition||window.webkitSpeechRecognition;if(!C){log('voce','Riconoscimento vocale non disponibile nel browser.');return;}if(voiceListening){recognitionRef.current?.stop();return;}const r=new C();r.lang='it-IT';r.interimResults=false;r.continuous=false;r.onresult=(e:SpeechRecognitionResultEvent)=>{const text=e.results[0]?.[0]?.transcript?.trim();if(text){voiceReplyRef.current=true;send(text,true);}};r.onend=()=>{setVoiceListening(false);recognitionRef.current=null;};r.onerror=()=>{setVoiceListening(false);recognitionRef.current=null;log('voce','Riconoscimento vocale terminato.');};recognitionRef.current=r;setVoiceListening(true);try{r.start();}catch{setVoiceListening(false);recognitionRef.current=null;}};
 
@@ -150,7 +223,7 @@ export default function Home(){
   const clearAll=()=>{if(confirm('Eliminare memoria, attività, conversazioni e registro locali?'))setStore({...empty,messages:[]});};
 
   return <main>
-    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className="status ai">● {voiceListening?'Ascolto':voiceSpeaking?'Parlo':'Locale'}</span><span className="version">v2.0</span></div></header>
+    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className="status ai">● {voiceListening?'Ascolto':voiceSpeaking?'Parlo':'Locale'}</span><span className="version">v2.1</span></div></header>
     <section className="hero"><div><small>STATO DEL SISTEMA</small><h2>{store.governor==='blocked'?'Governor bloccato':store.governor==='thinking'?'Elaborazione…':store.autonomy?'Nucleo operativo.':'Autonomia in pausa.'}</h2><p>Decisioni autonome guidate da eventi, con deduplica, stato esplicito e validazione. Memoria, voce e ricerca restano moduli separati.</p></div><div className="stats"><div><b>{store.memories.length}</b><span>memorie</span></div><div><b>{pending}</b><span>aperte</span></div><div><b>{store.cycles}</b><span>cicli</span></div></div></section>
     <nav className="tabs">{(['chat','research','memory','tasks','activity','settings'] as Tab[]).map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{x==='chat'?'Pandora':x==='research'?'Ricerca':x==='memory'?'Memoria':x==='tasks'?'Attività':x==='activity'?'Registro':'Impostazioni'}</button>)}</nav>
 
@@ -160,7 +233,7 @@ export default function Home(){
     {tab==='tasks'&&<section className="panel"><div className="panelhead"><div><small>PERSONAL WORK QUEUE</small><h2>Attività</h2></div><span>{pending} aperte</span></div><TaskInput onAdd={addTask}/><div className="task-list">{!store.tasks.length?<p className="empty">Nessuna attività.</p>:store.tasks.map(t=><label className="task" key={t.id}><input type="checkbox" checked={t.done} onChange={()=>{setStore(s=>({...s,tasks:s.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x),governor:'verifying'}));log('attività',`${t.done?'Riaperta':'Completata'}: ${t.title}`);scheduleAutonomy('modifica attività')}}/><span className={t.done?'done':''}>{t.title}</span><button type="button" onClick={e=>{e.preventDefault();setStore(s=>({...s,tasks:s.tasks.filter(x=>x.id!==t.id)}));log('attività',`Eliminata: ${t.title}`)}}>×</button></label>)}</div></section>}
     {tab==='activity'&&<section className="panel"><div className="panelhead"><div><small>LEARNING & AUDIT</small><h2>Registro</h2></div><span>{store.activity.length}</span></div><div className="last-action"><span>ULTIMA DECISIONE</span><b>{store.lastDecision}</b></div>{store.learning.slice(0,15).map(x=><div className="log" key={x.id}><i>impara</i><span>{x.text}</span><time>{Math.round(x.confidence*100)}% · {x.evidence} evidenze</time></div>)}{store.activity.slice(0,80).map(a=><div className="log" key={a.id}><i>{a.type}</i><span>{a.text}</span><time>{new Date(a.createdAt).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></div>)}{!store.activity.length&&!store.learning.length&&<p className="empty">Nessuna attività registrata.</p>}</section>}
     {tab==='settings'&&<section className="panel settings"><div className="panelhead"><div><small>PHONE CONTROL PLANE</small><h2>Impostazioni</h2></div></div><div className="setting"><div><b>Governor autonomo</b><span>Event-driven: niente polling aggressivo. Deduplica, decisione “non fare nulla” e stato persistente evitano i loop.</span></div><strong>{store.governor}</strong></div><div className="setting"><div><b>Autonomia locale</b><span>Opera nel browser quando la PWA è attiva. iOS può sospendere JavaScript in background.</span></div><button className={`switch ${store.autonomy?'on':''}`} onClick={()=>{const n=!store.autonomy;setStore(s=>({...s,autonomy:n,governor:n?'waiting':'idle'}));log('sistema',`Autonomia ${n?'attivata':'messa in pausa'}`)}}><span/></button></div><div className="setting"><div><b>Voce</b><span>Riconoscimento vocale + sintesi vocale del dispositivo/browser. Il nucleo di Pandora non viene sostituito da un’AI cloud.</span></div><strong>{voiceListening?'ascolto':voiceSpeaking?'parla':'pronta'}</strong></div><div className="setting"><div><b>Memoria adattiva</b><span>Fatti consolidati e candidati sono separati; confidenza ed evidenze crescono con le conferme.</span></div><strong>{store.memories.length}</strong></div><div className="architecture"><b>Architettura v2.0 — JARVIS foundation</b><p>Percezione → contesto → memoria → ragionamento → Governor → azione → verifica → apprendimento → attesa.</p><small>Il nucleo resta phone-first e non richiede OpenAI, ChatGPT, Anthropic o Google come cervello. Ricerca web e voce sono strumenti/interfacce.</small></div><div className="danger"><div><b>Azzeramento locale</b><span>Cancella tutti i dati salvati su questo telefono.</span></div><button onClick={clearAll}>Cancella dati</button></div></section>}
-    <footer><span>Pandora v2.0</span><span>·</span><span>phone-first</span><span>·</span><span>autonomy-governor</span><span>·</span><span>voice</span></footer>
+    <footer><span>Pandora v2.1</span><span>·</span><span>phone-first</span><span>·</span><span>autonomy-governor</span><span>·</span><span>voice</span></footer>
   </main>;
 }
 
