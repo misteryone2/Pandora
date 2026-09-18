@@ -1,4 +1,4 @@
-# Pandora v2.0
+# Pandora v2.1
 
 Phone-first foundation for a personal autonomous digital operating/reasoning assistant.
 
