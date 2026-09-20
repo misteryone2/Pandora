@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 
 type Tab = 'chat'|'research'|'memory'|'tasks'|'activity'|'settings';
-type Memory = { id:string; text:string; category:string; confidence:number; createdAt:string; updatedAt?:string; evidence:number; lastConfirmed:string };
+type Memory = { id:string; text:string; category:string; confidence:number; createdAt:string; updatedAt?:string; evidence:number; lastConfirmed:string; status?:'active'|'superseded'; supersededBy?:string };
 type Task = { id:string; title:string; done:boolean; createdAt:string; priority:number };
 type Message = { id:string; role:'user'|'pandora'; text:string; createdAt:string; mode?:string };
 type Activity = { id:string; type:string; text:string; createdAt:string };
@@ -14,6 +14,8 @@ type Candidate = { id:string; text:string; kind:string; confidence:number; sourc
 type ResearchSource = { id:string; title:string; url:string; extract:string; source:string; fetchedAt:string };
 type Research = { id:string; query:string; createdAt:string; sources:ResearchSource[]; summary:string; keywords:string[] };
 type GovernorState = 'idle'|'thinking'|'acting'|'verifying'|'waiting'|'blocked';
+type Goal = { id:string; title:string; status:'active'|'completed'|'blocked'; priority:number; createdAt:string; updatedAt:string; source:string };
+type PlanStep = { id:string; goalId:string; title:string; status:'pending'|'ready'|'done'|'blocked'; priority:number; dependsOn:string[]; createdAt:string }; 
 
 type SpeechRecognitionResultEvent = Event & { results: ArrayLike<ArrayLike<{ transcript?: string }>> };
 type SpeechRecognitionLike = {
@@ -33,13 +35,13 @@ declare global {
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
   }
 }
-type Store = { memories:Memory[]; tasks:Task[]; messages:Message[]; activity:Activity[]; learning:Learning[]; candidates:Candidate[]; researches:Research[]; autonomy:boolean; cycles:number; actions:number; governor:GovernorState; lastDecision:string; failureStreak:number; blockedUntil:number };
+type Store = { memories:Memory[]; goals:Goal[]; plan:PlanStep[]; tasks:Task[]; messages:Message[]; activity:Activity[]; learning:Learning[]; candidates:Candidate[]; researches:Research[]; autonomy:boolean; cycles:number; actions:number; governor:GovernorState; lastDecision:string; failureStreak:number; blockedUntil:number };
 
 const KEY='pandora.phone.v2';
 const LEGACY_KEYS=['pandora.phone.v1.9','pandora.phone.v1.8','pandora.phone.v1'];
 const id=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const iso=()=>new Date().toISOString();
-const empty:Store={memories:[],tasks:[],messages:[],activity:[],learning:[],candidates:[],researches:[],autonomy:true,cycles:0,actions:0,governor:'idle',lastDecision:'Nessuna decisione autonoma ancora.',failureStreak:0,blockedUntil:0};
+const empty:Store={memories:[],goals:[],plan:[],tasks:[],messages:[],activity:[],learning:[],candidates:[],researches:[],autonomy:true,cycles:0,actions:0,governor:'idle',lastDecision:'Nessuna decisione autonoma ancora.',failureStreak:0,blockedUntil:0};
 const makeLearning=(text:string,kind:string,confidence:number,status:LearningStatus='consolidated',evidence=1):Learning=>({id:id(),text,kind,confidence,createdAt:iso(),evidence,status});
 const makeMemory=(text:string,category:string,confidence:number,evidence=1):Memory=>({id:id(),text,category,confidence,createdAt:iso(),evidence,lastConfirmed:iso()});
 
@@ -47,9 +49,13 @@ function readStore():Store{
   try{
     const raw=localStorage.getItem(KEY)||LEGACY_KEYS.map(k=>localStorage.getItem(k)).find(Boolean); if(!raw)return empty;
     const p=JSON.parse(raw);
-    const memories=(p.memories||[]).map((m:any)=>({...m,id:m.id||id(),text:String(m.text||''),category:String(m.category||'Memoria'),confidence:Number.isFinite(m.confidence)?m.confidence:.7,evidence:Number.isFinite(m.evidence)?m.evidence:1,lastConfirmed:m.lastConfirmed||m.updatedAt||m.createdAt||iso()}));
+    let memories=(p.memories||[]).map((m:any)=>({...m,id:m.id||id(),text:String(m.text||''),category:String(m.category||'Memoria'),confidence:Number.isFinite(m.confidence)?m.confidence:.7,evidence:Number.isFinite(m.evidence)?m.evidence:1,lastConfirmed:m.lastConfirmed||m.updatedAt||m.createdAt||iso(),status:m.status==='superseded'?'superseded':'active'}));
+    // Migration/normalization: if old versions contain contradictory active preferences in the same domain, keep the newest/highest-confidence one active and mark the others superseded.
+    const domainOf=(text:string)=>{const l=text.toLowerCase();if(/rispost|rispon|dettagliat|conciso|breve|incisiv|pratic/.test(l))return 'stile-risposta';if(/cipoll|pisell|carne|pesce|pasta|caffe|te|dolce|salato/.test(l))return 'alimentazione';if(/film|serie|anime|marvel|fantasy|fantascienza/.test(l))return 'intrattenimento';return 'generale';};
+    const seenDomains=new Set<string>();
+    memories=[...memories].sort((a:any,b:any)=>new Date(b.lastConfirmed).getTime()-new Date(a.lastConfirmed).getTime() || b.confidence-a.confidence).map((m:any)=>{if(!/preferenza/i.test(m.category)||m.status==='superseded')return m;const d=domainOf(m.text);if(seenDomains.has(d))return {...m,status:'superseded'};seenDomains.add(d);return {...m,status:'active'};});
     const learning=(p.learning||[]).map((x:any)=>makeLearning(String(x.text||''),String(x.kind||'generale'),Number.isFinite(x.confidence)?x.confidence:.5,x.status==='candidate'?'candidate':'consolidated',Number.isFinite(x.evidence)?x.evidence:1));
-    return {...empty,...p,memories,tasks:p.tasks||[],messages:p.messages||[],activity:p.activity||[],learning,candidates:p.candidates||[],researches:p.researches||[],governor:'idle',lastDecision:p.lastDecision||empty.lastDecision,failureStreak:Number.isFinite(p.failureStreak)?p.failureStreak:0,blockedUntil:Number.isFinite(p.blockedUntil)?p.blockedUntil:0};
+    return {...empty,...p,memories,goals:p.goals||[],plan:p.plan||[],tasks:p.tasks||[],messages:p.messages||[],activity:p.activity||[],learning,candidates:p.candidates||[],researches:p.researches||[],governor:'idle',lastDecision:p.lastDecision||empty.lastDecision,failureStreak:Number.isFinite(p.failureStreak)?p.failureStreak:0,blockedUntil:Number.isFinite(p.blockedUntil)?p.blockedUntil:0};
   }catch{return empty;}
 }
 function writeStore(s:Store){try{localStorage.setItem(KEY,JSON.stringify(s));}catch{}}
@@ -95,12 +101,24 @@ export default function Home(){
 
   useEffect(()=>{if(hydrated&&store.autonomy)scheduleAutonomy('stato');return()=>{if(autonomyTimer.current)window.clearTimeout(autonomyTimer.current)};},[hydrated,store.autonomy,scheduleAutonomy]);
 
-  const rememberFact=useCallback((fact:string,category='Memoria',confidence=.8,source='conversazione')=>{
-    const clean=fact.trim();if(!clean)return;
+  const preferenceDomain=(text:string)=>{const l=text.toLowerCase();
+    if(/rispost|rispon|dettagliat|conciso|breve|incisiv|pratic/.test(l))return 'stile-risposta';
+    if(/cipoll|pisell|carne|pesce|pasta|caffe|te|dolce|salato/.test(l))return 'alimentazione';
+    if(/film|serie|anime|marvel|fantasy|fantascienza/.test(l))return 'intrattenimento';
+    return 'generale';
+  };
+
+  const rememberFact=useCallback((fact:string,category='Memoria',confidence=.8,source='conversazione')=>{const clean=fact.trim();if(!clean)return;
     setStore(s=>{
-      const old=s.memories.find(m=>m.text.toLowerCase()===clean.toLowerCase());
-      if(old)return {...s,memories:s.memories.map(m=>m.id===old.id?{...m,confidence:Math.min(1,m.confidence+.05),evidence:m.evidence+1,lastConfirmed:iso(),updatedAt:iso()}:m),learning:[makeLearning(`Memoria rinforzata: ${clean}`,'memoria',Math.min(1,old.confidence+.05),'consolidated',old.evidence+1),...s.learning].slice(0,300)};
-      return {...s,memories:[makeMemory(clean,category,confidence),...s.memories].slice(0,300),learning:[makeLearning(`Nuova memoria: ${clean}`,'memoria',confidence,'consolidated',1),...s.learning].slice(0,300)};
+      const now=iso();
+      const old=s.memories.find(m=>m.status!=='superseded'&&m.text.toLowerCase()===clean.toLowerCase());
+      if(old)return {...s,memories:s.memories.map(m=>m.id===old.id?{...m,confidence:Math.min(1,m.confidence+.05),evidence:m.evidence+1,lastConfirmed:now,updatedAt:now,status:'active'}:m),learning:[makeLearning(`Memoria rinforzata: ${clean}`,'memoria',Math.min(1,old.confidence+.05),'consolidated',old.evidence+1),...s.learning].slice(0,300)};
+      const domain=category.toLowerCase().includes('preferenza')?preferenceDomain(clean):'';
+      const supersededIds=domain?s.memories.filter(m=>m.status!=='superseded'&&/preferenza/i.test(m.category)&&preferenceDomain(m.text)===domain&&m.text.toLowerCase()!==clean.toLowerCase()).map(m=>m.id):[];
+      const newId=id();
+      const updated=s.memories.map(m=>supersededIds.includes(m.id)?{...m,status:'superseded' as const,supersededBy:newId,updatedAt:now}:m);
+      const conflictNote=supersededIds.length?`Sostituite ${supersededIds.length} preferenze precedenti nello stesso ambito.`:'';
+      return {...s,memories:[{...makeMemory(clean,category,confidence),id:newId,status:'active'},...updated].slice(0,300),learning:[makeLearning(`Nuova memoria: ${clean}`,'memoria',confidence,'consolidated',1),...(conflictNote?[makeLearning(conflictNote,'correzione',1,'consolidated',1)]:[]),...s.learning].slice(0,300)};
     });
     log('apprendimento',`${source}: ${clean}`);
   },[log]);
@@ -109,9 +127,18 @@ export default function Home(){
 
   const explicitMemory=(text:string)=>{const patterns:[RegExp,string,number][]=[[/^ricorda(?:ti)? che\s+/i,'Memoria',.99],[/^preferisco\s+/i,'Preferenza',.98],[/^mi piace\s+/i,'Preferenza',.98],[/^non mi piace\s+/i,'Preferenza negativa',.98],[/^non voglio\s+/i,'Vincolo',.98],[/^odio\s+/i,'Preferenza negativa',.98],[/^amo\s+/i,'Preferenza',.98]];const hit=patterns.find(([r])=>r.test(text));if(!hit)return null;const fact=text.replace(hit[0],'').trim();if(!fact)return null;rememberFact(fact,hit[1],hit[2],'istruzione esplicita');return `Memorizzato. Lo terrò presente: ${fact}`;};
   const inferLearning=(text:string)=>{const patterns:[RegExp,string,string,number,boolean][]=[[/\bmi chiamo\s+([a-zà-ÿ][a-zà-ÿ' -]{1,40})/i,'profilo','Hai indicato il nome: $1',.98,true],[/\bpreferisco\s+(.{2,120})$/i,'preferenza','Preferisci: $1',.84,true],[/\bmi piace\s+(.{2,120})$/i,'preferenza','Ti piace: $1',.84,true],[/\bnon mi piace\s+(.{2,120})$/i,'preferenza','Non ti piace: $1',.84,true],[/\bnon voglio\s+(.{2,120})$/i,'vincolo','Vincolo: $1',.9,true],[/\bvorrei\s+(.{2,120})$/i,'obiettivo','Possibile obiettivo: $1',.68,false],[/\bdevo\s+(.{2,120})$/i,'obiettivo','Possibile attività: $1',.68,false],[/\bmi interessa\s+(.{2,120})$/i,'interesse','Interesse: $1',.65,false]];for(const[r,kind,t,c,strong]of patterns){const m=r.exec(text);if(!m)continue;const value=m[1].trim().replace(/[.!?]+$/,'');if(value.length<2)continue;const fact=t.replace('$1',value);if(strong)rememberFact(fact,kind==='profilo'?'Profilo':kind==='vincolo'?'Vincolo':'Preferenza',c);else addCandidate(fact,kind,c,'conversazione');return{kind,value,strong};}return null;};
-  const relevant=(text:string)=>{const words=text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(w=>w.length>3);return store.memories.map(m=>({m,score:words.filter(w=>m.text.toLowerCase().includes(w)).length})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,4).map(x=>x.m);};
+  const relevant=(text:string)=>{const words=text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(w=>w.length>3);return store.memories.filter(m=>m.status!=='superseded').map(m=>({m,score:words.filter(w=>m.text.toLowerCase().includes(w)).length})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,4).map(x=>x.m);};
 
   const addTask=(title:string)=>{const clean=title.trim();if(!clean)return;setStore(s=>({...s,tasks:[{id:id(),title:clean,done:false,createdAt:iso(),priority:1},...s.tasks]}));log('attività',`Creata attività: ${clean}`);scheduleAutonomy('nuova attività');};
+
+  const buildPlan=useCallback((goalTitle:string)=>{
+    const now=iso(); const goal:Goal={id:id(),title:goalTitle,status:'active',priority:2,createdAt:now,updatedAt:now,source:'conversazione'};
+    const open=store.tasks.filter(t=>!t.done).sort((a,b)=>b.priority-a.priority);
+    const steps:PlanStep[]=open.slice(0,8).map((t,i)=>({id:id(),goalId:goal.id,title:t.title,status:i===0?'ready':'pending',priority:t.priority,dependsOn:i>0?[]:[],createdAt:now}));
+    setStore(s=>({...s,goals:[goal,...s.goals].slice(0,30),plan:[...steps,...s.plan].slice(0,100),governor:steps.length?'acting':'waiting',lastDecision:steps.length?`goal:${goal.id}:step:${steps[0].id}`:`goal:${goal.id}:waiting` }));
+    log('planner',steps.length?`Piano creato per “${goalTitle}”: ${steps.length} passi.`:`Obiettivo “${goalTitle}” registrato: mancano attività concrete.`);
+    return {goal,steps};
+  },[log,store.tasks,store.goals,store.plan]);
 
   const answer=async(text:string):Promise<string>=>{
     const l=text.toLowerCase().trim();
@@ -134,11 +161,12 @@ export default function Home(){
 
     // 3) Stable self/context queries.
     if(l.includes('cosa ricordi')||l.includes('cosa sai di me')){
-      if(!store.memories.length)return 'Al momento non ho memorie consolidate su di te. Posso però usare il contesto di questa conversazione e imparare informazioni che mi chiedi esplicitamente di ricordare.';
-      return `Queste sono le informazioni che ho memorizzato:\n${store.memories.slice(0,15).map(m=>`• ${m.text} (${Math.round(m.confidence*100)}%, ${m.evidence} evidenze)`).join('\n')}`;
+      const active=store.memories.filter(m=>m.status!=='superseded');
+      if(!active.length)return 'Al momento non ho memorie consolidate attive su di te. Posso imparare informazioni che mi chiedi esplicitamente di ricordare.';
+      return `Queste sono le informazioni che ho memorizzato:\n${active.slice(0,15).map(m=>`• ${m.text} (${Math.round(m.confidence*100)}%, ${m.evidence} evidenze)`).join('\n')}`;
     }
     if(l.includes('come preferisco')||l.includes('quale è la mia preferenza')||l.includes('qual è la mia preferenza')){
-      const prefs=store.memories.filter(m=>/preferenza/i.test(m.category)||/preferisci|preferisco|piace|non ti piace/i.test(m.text));
+      const prefs=store.memories.filter(m=>m.status!=='superseded'&&(/preferenza/i.test(m.category)||/preferisci|preferisco|piace|non ti piace/i.test(m.text)));
       return prefs.length?`La preferenza che risulta attualmente memorizzata è: ${prefs[0].text}.`:'Non ho una preferenza consolidata su questo punto.';
     }
     if(l.includes('cosa stavamo facendo')||l.includes('dove eravamo rimasti')){
@@ -152,11 +180,17 @@ export default function Home(){
       return 'Per aiutarti senza inventare, mi servono almeno: obiettivo, risultato desiderato, scadenza (se esiste), vincoli e risorse/strumenti disponibili. Finché manca l’obiettivo non eseguo azioni arbitrarie.';
     }
 
-    // 5) Planning: use existing tasks; do not invent work.
+    // 5) Planner: crea un obiettivo e una sequenza di passi solo da attività reali.
     if(l.includes('organizza il mio lavoro')||l.includes('organizza il lavoro')||l.includes('pianifica il mio lavoro')){
       const open=store.tasks.filter(t=>!t.done).sort((a,b)=>b.priority-a.priority);
       if(!open.length)return 'Non ho ancora attività concrete da organizzare. Per non inventare lavoro, dimmi le attività o collegami a una fonte da cui recuperarle.';
-      return `Piano operativo:\n${open.slice(0,8).map((t,i)=>`${i+1}. ${t.title}`).join('\n')}\n\nOrdine basato sulle priorità disponibili. Non modifico né completo attività senza una richiesta o uno strumento autorizzato.`;
+      const title='Organizzare il lavoro in modo efficiente';
+      const {steps}=buildPlan(title);
+      return `Piano operativo creato per “${title}”:\n${steps.map((x,i)=>`${i+1}. ${x.title}${i===0?' ← prossimo passo':''}`).join('\n')}\n\nNon eseguo azioni esterne senza autorizzazione. Il primo passo è pronto per l’esecuzione.`;
+    }
+    if(/crea|imposta|definisci/.test(l)&&/obiettivo/.test(l)){
+      const title=text.replace(/.*?obiettivo\s*:?[ ]*/i,'').trim();
+      if(title){const {steps}=buildPlan(title);return steps.length?`Obiettivo creato: “${title}”.\nProssimo passo: ${steps[0].title}`:`Obiettivo creato: “${title}”. Mancano attività concrete per costruire il piano.`;}
     }
 
     // 6) Autonomous status: report and allow idle as a valid decision.
@@ -186,8 +220,9 @@ export default function Home(){
       if(store.memories.length===0)problems.push('memoria consolidata ancora vuota');
       if(store.tasks.length===0)problems.push('nessuna attività concreta disponibile per la pianificazione');
       if(store.researches.length===0)problems.push('nessuna ricerca ancora eseguita');
+      if(store.goals.length===0)problems.push('nessun obiettivo attivo nel Planner');
       const p=problems.length?problems.map(x=>`• ${x}`).join('\n'):'Non rilevo lacune evidenti nei moduli locali disponibili.';
-      return `Autovalutazione:\n${p}\n\nProssimo passo utile: collegare planner, strumenti autorizzati e verifica dei risultati al Governor. Non considero completata un’azione finché il risultato non è verificato.`;
+      return `Autovalutazione:\n${p}\n\nProssimo passo utile: collegare l’esecuzione dei passi del Planner a strumenti autorizzati e verifica dei risultati al Governor. Non considero completata un’azione finché il risultato non è verificato.`;
     }
 
     if(l.includes('stato')&&l.includes('autonomia'))return `Governor: ${store.governor}. Cicli: ${store.cycles}. Azioni: ${store.actions}. ${store.memories.length} memorie, ${store.learning.length} apprendimenti, ${store.tasks.filter(t=>!t.done).length} attività aperte.`;
@@ -223,17 +258,17 @@ export default function Home(){
   const clearAll=()=>{if(confirm('Eliminare memoria, attività, conversazioni e registro locali?'))setStore({...empty,messages:[]});};
 
   return <main>
-    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className="status ai">● {voiceListening?'Ascolto':voiceSpeaking?'Parlo':'Locale'}</span><span className="version">v2.1</span></div></header>
-    <section className="hero"><div><small>STATO DEL SISTEMA</small><h2>{store.governor==='blocked'?'Governor bloccato':store.governor==='thinking'?'Elaborazione…':store.autonomy?'Nucleo operativo.':'Autonomia in pausa.'}</h2><p>Decisioni autonome guidate da eventi, con deduplica, stato esplicito e validazione. Memoria, voce e ricerca restano moduli separati.</p></div><div className="stats"><div><b>{store.memories.length}</b><span>memorie</span></div><div><b>{pending}</b><span>aperte</span></div><div><b>{store.cycles}</b><span>cicli</span></div></div></section>
+    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className="status ai">● {voiceListening?'Ascolto':voiceSpeaking?'Parlo':'Locale'}</span><span className="version">v2.2</span></div></header>
+    <section className="hero"><div><small>STATO DEL SISTEMA</small><h2>{store.governor==='blocked'?'Governor bloccato':store.governor==='thinking'?'Elaborazione…':store.autonomy?'Nucleo operativo.':'Autonomia in pausa.'}</h2><p>Decisioni autonome guidate da eventi, con deduplica, stato esplicito e validazione. Memoria, voce e ricerca restano moduli separati.</p></div><div className="stats"><div><b>{store.memories.filter(m=>m.status!=='superseded').length}</b><span>memorie</span></div><div><b>{pending}</b><span>aperte</span></div><div><b>{store.cycles}</b><span>cicli</span></div></div></section>
     <nav className="tabs">{(['chat','research','memory','tasks','activity','settings'] as Tab[]).map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{x==='chat'?'Pandora':x==='research'?'Ricerca':x==='memory'?'Memoria':x==='tasks'?'Attività':x==='activity'?'Registro':'Impostazioni'}</button>)}</nav>
 
     {tab==='chat'&&<section className="panel chat-panel"><div className="chat-toolbar"><span>Conversazione</span><small>{loading?'Pandora sta elaborando…':voiceListening?'ascolto vocale':voiceSpeaking?'risposta vocale':'pronta'}</small></div><div className="messages">{store.messages.map(m=><div key={m.id} className={`message ${m.role}`}><span className="avatar">{m.role==='pandora'?'✦':'Tu'}</span><div><p>{m.text}</p><small>{new Date(m.createdAt).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})} · {m.mode||'locale'}</small></div></div>)}{loading&&<div className="message pandora"><span className="avatar">✦</span><div><p className="typing">•••</p></div></div>}</div><div className="composer"><textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}} placeholder="Scrivi o parla con Pandora…" rows={1}/><button className={voiceListening?'voice-on':''} onClick={startVoice} title="Parla con Pandora">{voiceListening?'■':'🎙'}</button><button onClick={()=>send()} disabled={loading||!input.trim()} title="Invia">↑</button></div><div className="quick"><button onClick={()=>setInput('Ricorda che ')}>+ Memoria</button><button onClick={()=>setInput('Aggiungi attività ')}>+ Attività</button><button onClick={()=>setInput('Cosa ricordi di me?')}>Cosa ricordi?</button></div></section>}
     {tab==='research'&&<ResearchPanel query={researchQuery} setQuery={setResearchQuery} loading={researchLoading} run={runResearch} researches={researches} onSave={saveResearchMemory}/>} 
-    {tab==='memory'&&<><section className="panel"><div className="panelhead"><div><small>LONG-TERM MEMORY</small><h2>Memoria</h2></div><span>{store.memories.length}</span></div>{!store.memories.length?<p className="empty">Nessuna memoria consolidata.</p>:store.memories.map(m=><article className="memory" key={m.id}><div><b>{m.text}</b><small>{m.category} · {Math.round(m.confidence*100)}% · {m.evidence} evidenze</small></div><button onClick={()=>{setStore(s=>({...s,memories:s.memories.filter(x=>x.id!==m.id)}));log('memoria',`Eliminata: ${m.text}`)}}>×</button></article>)}</section>{store.candidates.length>0&&<section className="panel"><div className="panelhead"><div><small>ACTIVE LEARNING</small><h2>Da verificare</h2></div><span>{store.candidates.length}</span></div>{store.candidates.map(c=><article className="memory" key={c.id}><div><b>{c.text}</b><small>{c.kind} · {Math.round(c.confidence*100)}% · candidato</small></div><button onClick={()=>confirmCandidate(c)}>✓</button><button onClick={()=>rejectCandidate(c)}>×</button></article>)}</section>}</>}
-    {tab==='tasks'&&<section className="panel"><div className="panelhead"><div><small>PERSONAL WORK QUEUE</small><h2>Attività</h2></div><span>{pending} aperte</span></div><TaskInput onAdd={addTask}/><div className="task-list">{!store.tasks.length?<p className="empty">Nessuna attività.</p>:store.tasks.map(t=><label className="task" key={t.id}><input type="checkbox" checked={t.done} onChange={()=>{setStore(s=>({...s,tasks:s.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x),governor:'verifying'}));log('attività',`${t.done?'Riaperta':'Completata'}: ${t.title}`);scheduleAutonomy('modifica attività')}}/><span className={t.done?'done':''}>{t.title}</span><button type="button" onClick={e=>{e.preventDefault();setStore(s=>({...s,tasks:s.tasks.filter(x=>x.id!==t.id)}));log('attività',`Eliminata: ${t.title}`)}}>×</button></label>)}</div></section>}
+    {tab==='memory'&&<><section className="panel"><div className="panelhead"><div><small>LONG-TERM MEMORY</small><h2>Memoria</h2></div><span>{store.memories.filter(m=>m.status!=='superseded').length}</span></div>{!store.memories.filter(m=>m.status!=='superseded').length?<p className="empty">Nessuna memoria consolidata.</p>:store.memories.filter(m=>m.status!=='superseded').map(m=><article className="memory" key={m.id}><div><b>{m.text}</b><small>{m.category} · {Math.round(m.confidence*100)}% · {m.evidence} evidenze</small></div><button onClick={()=>{setStore(s=>({...s,memories:s.memories.filter(x=>x.id!==m.id)}));log('memoria',`Eliminata: ${m.text}`)}}>×</button></article>)}</section>{store.candidates.length>0&&<section className="panel"><div className="panelhead"><div><small>ACTIVE LEARNING</small><h2>Da verificare</h2></div><span>{store.candidates.length}</span></div>{store.candidates.map(c=><article className="memory" key={c.id}><div><b>{c.text}</b><small>{c.kind} · {Math.round(c.confidence*100)}% · candidato</small></div><button onClick={()=>confirmCandidate(c)}>✓</button><button onClick={()=>rejectCandidate(c)}>×</button></article>)}</section>}</>}
+    {tab==='tasks'&&<section className="panel"><div className="panelhead"><div><small>PERSONAL WORK QUEUE</small><h2>Attività</h2></div><span>{pending} aperte</span></div><TaskInput onAdd={addTask}/>{store.goals.filter(g=>g.status==='active').slice(0,3).map(g=><div className="architecture" key={g.id}><b>Obiettivo: {g.title}</b><p>{store.plan.filter(p=>p.goalId===g.id).map((p,i)=>`${i+1}. ${p.title}${p.status==='ready'?' ← prossimo':''}`).join('\n')||'Nessun passo ancora disponibile.'}</p></div>)}<div className="task-list">{!store.tasks.length?<p className="empty">Nessuna attività.</p>:store.tasks.map(t=><label className="task" key={t.id}><input type="checkbox" checked={t.done} onChange={()=>{setStore(s=>({...s,tasks:s.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x),governor:'verifying'}));log('attività',`${t.done?'Riaperta':'Completata'}: ${t.title}`);scheduleAutonomy('modifica attività')}}/><span className={t.done?'done':''}>{t.title}</span><button type="button" onClick={e=>{e.preventDefault();setStore(s=>({...s,tasks:s.tasks.filter(x=>x.id!==t.id)}));log('attività',`Eliminata: ${t.title}`)}}>×</button></label>)}</div></section>}
     {tab==='activity'&&<section className="panel"><div className="panelhead"><div><small>LEARNING & AUDIT</small><h2>Registro</h2></div><span>{store.activity.length}</span></div><div className="last-action"><span>ULTIMA DECISIONE</span><b>{store.lastDecision}</b></div>{store.learning.slice(0,15).map(x=><div className="log" key={x.id}><i>impara</i><span>{x.text}</span><time>{Math.round(x.confidence*100)}% · {x.evidence} evidenze</time></div>)}{store.activity.slice(0,80).map(a=><div className="log" key={a.id}><i>{a.type}</i><span>{a.text}</span><time>{new Date(a.createdAt).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></div>)}{!store.activity.length&&!store.learning.length&&<p className="empty">Nessuna attività registrata.</p>}</section>}
-    {tab==='settings'&&<section className="panel settings"><div className="panelhead"><div><small>PHONE CONTROL PLANE</small><h2>Impostazioni</h2></div></div><div className="setting"><div><b>Governor autonomo</b><span>Event-driven: niente polling aggressivo. Deduplica, decisione “non fare nulla” e stato persistente evitano i loop.</span></div><strong>{store.governor}</strong></div><div className="setting"><div><b>Autonomia locale</b><span>Opera nel browser quando la PWA è attiva. iOS può sospendere JavaScript in background.</span></div><button className={`switch ${store.autonomy?'on':''}`} onClick={()=>{const n=!store.autonomy;setStore(s=>({...s,autonomy:n,governor:n?'waiting':'idle'}));log('sistema',`Autonomia ${n?'attivata':'messa in pausa'}`)}}><span/></button></div><div className="setting"><div><b>Voce</b><span>Riconoscimento vocale + sintesi vocale del dispositivo/browser. Il nucleo di Pandora non viene sostituito da un’AI cloud.</span></div><strong>{voiceListening?'ascolto':voiceSpeaking?'parla':'pronta'}</strong></div><div className="setting"><div><b>Memoria adattiva</b><span>Fatti consolidati e candidati sono separati; confidenza ed evidenze crescono con le conferme.</span></div><strong>{store.memories.length}</strong></div><div className="architecture"><b>Architettura v2.0 — JARVIS foundation</b><p>Percezione → contesto → memoria → ragionamento → Governor → azione → verifica → apprendimento → attesa.</p><small>Il nucleo resta phone-first e non richiede OpenAI, ChatGPT, Anthropic o Google come cervello. Ricerca web e voce sono strumenti/interfacce.</small></div><div className="danger"><div><b>Azzeramento locale</b><span>Cancella tutti i dati salvati su questo telefono.</span></div><button onClick={clearAll}>Cancella dati</button></div></section>}
-    <footer><span>Pandora v2.1</span><span>·</span><span>phone-first</span><span>·</span><span>autonomy-governor</span><span>·</span><span>voice</span></footer>
+    {tab==='settings'&&<section className="panel settings"><div className="panelhead"><div><small>PHONE CONTROL PLANE</small><h2>Impostazioni</h2></div></div><div className="setting"><div><b>Governor autonomo</b><span>Event-driven: niente polling aggressivo. Deduplica, decisione “non fare nulla” e stato persistente evitano i loop.</span></div><strong>{store.governor}</strong></div><div className="setting"><div><b>Autonomia locale</b><span>Opera nel browser quando la PWA è attiva. iOS può sospendere JavaScript in background.</span></div><button className={`switch ${store.autonomy?'on':''}`} onClick={()=>{const n=!store.autonomy;setStore(s=>({...s,autonomy:n,governor:n?'waiting':'idle'}));log('sistema',`Autonomia ${n?'attivata':'messa in pausa'}`)}}><span/></button></div><div className="setting"><div><b>Voce</b><span>Riconoscimento vocale + sintesi vocale del dispositivo/browser. Il nucleo di Pandora non viene sostituito da un’AI cloud.</span></div><strong>{voiceListening?'ascolto':voiceSpeaking?'parla':'pronta'}</strong></div><div className="setting"><div><b>Memoria adattiva</b><span>Fatti consolidati e candidati sono separati; confidenza ed evidenze crescono con le conferme.</span></div><strong>{store.memories.filter(m=>m.status!=='superseded').length}</strong></div><div className="architecture"><b>Architettura v2.2 — Adaptive Planner</b><p>Percezione → contesto → memoria → ragionamento → Governor → azione → verifica → apprendimento → attesa.</p><small>Il nucleo resta phone-first e non richiede OpenAI, ChatGPT, Anthropic o Google come cervello. Ricerca web e voce sono strumenti/interfacce.</small></div><div className="danger"><div><b>Azzeramento locale</b><span>Cancella tutti i dati salvati su questo telefono.</span></div><button onClick={clearAll}>Cancella dati</button></div></section>}
+    <footer><span>Pandora v2.2</span><span>·</span><span>phone-first</span><span>·</span><span>autonomy-governor</span><span>·</span><span>voice</span></footer>
   </main>;
 }
 
