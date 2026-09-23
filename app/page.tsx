@@ -226,9 +226,16 @@ export default function Home(){
     }
 
     if(l.includes('stato')&&l.includes('autonomia'))return `Governor: ${store.governor}. Cicli: ${store.cycles}. Azioni: ${store.actions}. ${store.memories.length} memorie, ${store.learning.length} apprendimenti, ${store.tasks.filter(t=>!t.done).length} attività aperte.`;
-    if(/^(?:aggiungi|crea|metti)\s+(?:un[ae]?\s+)?attivit[aà]/i.test(text)){const title=text.replace(/^(?:aggiungi|crea|metti)\s+(?:un[ae]?\s+)?attivit[aà]\s*:?[ ]*/i,'').trim().replace(/^['"]|['"]$/g,'');if(title){const created=addTask(title);return created?`Attività aggiunta e verificata: ${title}.`:`L’attività “${title}” esiste già. Non ne creo una duplicata.`;}}
-    if(l.includes('quante attività')||l.includes('quante attivita'))return `Hai ${store.tasks.filter(t=>!t.done).length} attività aperte.`;
-    if(l.includes('elenca')&&l.includes('attivit'))return store.tasks.filter(t=>!t.done).length?store.tasks.filter(t=>!t.done).map((t,i)=>`${i+1}. ${t.title}`).join('\n'):'Non hai attività aperte.';
+    // 9) Task commands must be handled before generic question/context fallbacks.
+    const taskAdd=/^(?:aggiungi|crea|metti)\s+(?:(?:un[ae]?|l)[\s’']+)?attivit[aà]\s*:?[ ]*/i;
+    if(taskAdd.test(text)){
+      const title=text.replace(taskAdd,'').trim().replace(/^[\"'“”]|[\"'“”]$/g,'').trim();
+      if(title){const created=addTask(title);return created?`Attività aggiunta e verificata: ${title}.`:`L’attività “${title}” esiste già. Non ne creo una duplicata.`;}
+    }
+    if(/(?:quali|che)\s+attivit[aà]\s+(?:ho|ci sono)|quante\s+attivit[aà]|elenca.*attivit/i.test(l)){
+      const open=store.tasks.filter(t=>!t.done);
+      return open.length?`Hai ${open.length} attività aperte:\n${open.map((t,i)=>`${i+1}. ${t.title}`).join('\n')}`:'Non hai attività aperte.';
+    }
     if(inferred?.kind==='obiettivo')return inferred.strong?`Ho registrato l’informazione. Posso trasformarla in un’attività quando me lo chiedi.`:`Ho rilevato un possibile obiettivo: “${inferred.value}”. Lo tengo come candidato, non come certezza.`;
     if(inferred?.kind==='interesse')return `Ho rilevato un possibile interesse per “${inferred.value}”. Per ora resta un candidato.`;
     if(inferred?.kind==='vincolo')return `Capito. Terrò conto di questo vincolo: “${inferred.value}”.`;
