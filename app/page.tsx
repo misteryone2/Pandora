@@ -43,7 +43,7 @@ const id=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).
 const iso=()=>new Date().toISOString();
 const empty:Store={memories:[],goals:[],plan:[],tasks:[],messages:[],activity:[],learning:[],candidates:[],researches:[],autonomy:true,cycles:0,actions:0,governor:'idle',lastDecision:'Nessuna decisione autonoma ancora.',failureStreak:0,blockedUntil:0};
 const makeLearning=(text:string,kind:string,confidence:number,status:LearningStatus='consolidated',evidence=1):Learning=>({id:id(),text,kind,confidence,createdAt:iso(),evidence,status});
-const makeMemory=(text:string,category:string,confidence:number,evidence=1):Memory=>({id:id(),text,category,confidence,createdAt:iso(),evidence,lastConfirmed:iso()});
+const makeMemory=(text:string,category:string,confidence:number,evidence=1):Memory=>({id:id(),text,category,confidence,createdAt:iso(),evidence,lastConfirmed:iso(),status:'active'});
 
 function readStore():Store{
   try{
@@ -112,7 +112,7 @@ export default function Home(){
     setStore(s=>{
       const now=iso();
       const old=s.memories.find(m=>m.status!=='superseded'&&m.text.toLowerCase()===clean.toLowerCase());
-      if(old)return {...s,memories:s.memories.map(m=>m.id===old.id?{...m,confidence:Math.min(1,m.confidence+.05),evidence:m.evidence+1,lastConfirmed:now,updatedAt:now,status:'active'}:m),learning:[makeLearning(`Memoria rinforzata: ${clean}`,'memoria',Math.min(1,old.confidence+.05),'consolidated',old.evidence+1),...s.learning].slice(0,300)};
+      if(old)return {...s,memories:s.memories.map(m=>m.id===old.id?{...m,confidence:Math.min(1,m.confidence+.05),evidence:m.evidence+1,lastConfirmed:now,updatedAt:now,status:'active' as const}:m),learning:[makeLearning(`Memoria rinforzata: ${clean}`,'memoria',Math.min(1,old.confidence+.05),'consolidated',old.evidence+1),...s.learning].slice(0,300)};
       const domain=category.toLowerCase().includes('preferenza')?preferenceDomain(clean):'';
       const supersededIds=domain?s.memories.filter(m=>m.status!=='superseded'&&/preferenza/i.test(m.category)&&preferenceDomain(m.text)===domain&&m.text.toLowerCase()!==clean.toLowerCase()).map(m=>m.id):[];
       const newId=id();
