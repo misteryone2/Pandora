@@ -118,7 +118,7 @@ export default function Home(){
       const newId=id();
       const updated=s.memories.map(m=>supersededIds.includes(m.id)?{...m,status:'superseded' as const,supersededBy:newId,updatedAt:now}:m);
       const conflictNote=supersededIds.length?`Sostituite ${supersededIds.length} preferenze precedenti nello stesso ambito.`:'';
-      return {...s,memories:[{...makeMemory(clean,category,confidence),id:newId,status:'active'},...updated].slice(0,300),learning:[makeLearning(`Nuova memoria: ${clean}`,'memoria',confidence,'consolidated',1),...(conflictNote?[makeLearning(conflictNote,'correzione',1,'consolidated',1)]:[]),...s.learning].slice(0,300)};
+      return {...s,memories:[{...makeMemory(clean,category,confidence),id:newId,status:'active' as const},...updated].slice(0,300),learning:[makeLearning(`Nuova memoria: ${clean}`,'memoria',confidence,'consolidated',1),...(conflictNote?[makeLearning(conflictNote,'correzione',1,'consolidated',1)]:[]),...s.learning].slice(0,300)};
     });
     log('apprendimento',`${source}: ${clean}`);
   },[log]);
