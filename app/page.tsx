@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 
-type Tab = 'chat'|'research'|'memory'|'tasks'|'activity'|'settings';
+type Tab = 'chat'|'research'|'memory'|'tasks'|'activity'|'rete'|'settings';
 type Memory = { id:string; text:string; category:string; confidence:number; createdAt:string; updatedAt?:string; evidence:number; lastConfirmed:string; status?:'active'|'superseded'; supersededBy?:string };
 type Task = { id:string; title:string; done:boolean; createdAt:string; priority:number };
 type Message = { id:string; role:'user'|'pandora'; text:string; createdAt:string; mode?:string };
@@ -300,13 +300,14 @@ export default function Home(){
   return <main>
     <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className={`status ${coreOnline?'ai':''}`} title={coreOnline?'Pandora Core (LLM locale) raggiungibile':'Pandora Core non raggiungibile: uso il motore locale phone-first'}>● Core {coreOnline===null?'…':coreOnline?'online':'offline'}</span><span className="status ai">● {voiceListening?'Ascolto':voiceSpeaking?'Parlo':'Locale'}</span><span className="version">v2.3</span></div></header>
     <section className="hero"><div><small>STATO DEL SISTEMA</small><h2>{store.governor==='blocked'?'Governor bloccato':store.governor==='thinking'?'Elaborazione…':store.autonomy?'Nucleo operativo.':'Autonomia in pausa.'}</h2><p>Decisioni autonome guidate da eventi, con deduplica, stato esplicito e validazione. Memoria, voce e ricerca restano moduli separati.</p></div><div className="stats"><div><b>{store.memories.filter(m=>m.status!=='superseded').length}</b><span>memorie</span></div><div><b>{pending}</b><span>aperte</span></div><div><b>{store.cycles}</b><span>cicli</span></div></div></section>
-    <nav className="tabs">{(['chat','research','memory','tasks','activity','settings'] as Tab[]).map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{x==='chat'?'Pandora':x==='research'?'Ricerca':x==='memory'?'Memoria':x==='tasks'?'Attività':x==='activity'?'Registro':'Impostazioni'}</button>)}</nav>
+    <nav className="tabs">{(['chat','research','memory','tasks','activity','rete','settings'] as Tab[]).map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{x==='chat'?'Pandora':x==='research'?'Ricerca':x==='memory'?'Memoria':x==='tasks'?'Attività':x==='activity'?'Registro':x==='rete'?'Rete':'Impostazioni'}</button>)}</nav>
 
     {tab==='chat'&&<section className="panel chat-panel"><div className="chat-toolbar"><span>Conversazione</span><small>{loading?'Pandora sta elaborando…':voiceListening?'ascolto vocale':voiceSpeaking?'risposta vocale':'pronta'}</small></div><div className="messages">{store.messages.map(m=><div key={m.id} className={`message ${m.role}`}><span className="avatar">{m.role==='pandora'?'✦':'Tu'}</span><div><p>{m.text}</p><small>{new Date(m.createdAt).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})} · {m.mode||'locale'}</small></div></div>)}{loading&&<div className="message pandora"><span className="avatar">✦</span><div><p className="typing">•••</p></div></div>}</div><div className="composer"><textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}} placeholder="Scrivi o parla con Pandora…" rows={1}/><button className={voiceListening?'voice-on':''} onClick={startVoice} title="Parla con Pandora">{voiceListening?'■':'🎙'}</button><button onClick={()=>send()} disabled={loading||!input.trim()} title="Invia">↑</button></div><div className="quick"><button onClick={()=>setInput('Ricorda che ')}>+ Memoria</button><button onClick={()=>setInput('Aggiungi attività ')}>+ Attività</button><button onClick={()=>setInput('Cosa ricordi di me?')}>Cosa ricordi?</button><button onClick={()=>setTab('tasks')}>Attività</button><button onClick={()=>setTab('memory')}>Memoria</button><button onClick={()=>setTab('research')}>Ricerca</button><button onClick={()=>setTab('activity')}>Registro</button></div></section>}
     {tab==='research'&&<ResearchPanel query={researchQuery} setQuery={setResearchQuery} loading={researchLoading} run={runResearch} researches={researches} onSave={saveResearchMemory}/>} 
     {tab==='memory'&&<><section className="panel"><div className="panelhead"><div><small>LONG-TERM MEMORY</small><h2>Memoria</h2></div><span>{store.memories.filter(m=>m.status!=='superseded').length}</span></div>{!store.memories.filter(m=>m.status!=='superseded').length?<p className="empty">Nessuna memoria consolidata.</p>:store.memories.filter(m=>m.status!=='superseded').map(m=><article className="memory" key={m.id}><div><b>{m.text}</b><small>{m.category} · {Math.round(m.confidence*100)}% · {m.evidence} evidenze</small></div><button onClick={()=>{setStore(s=>({...s,memories:s.memories.filter(x=>x.id!==m.id)}));log('memoria',`Eliminata: ${m.text}`)}}>×</button></article>)}</section>{store.candidates.length>0&&<section className="panel"><div className="panelhead"><div><small>ACTIVE LEARNING</small><h2>Da verificare</h2></div><span>{store.candidates.length}</span></div>{store.candidates.map(c=><article className="memory" key={c.id}><div><b>{c.text}</b><small>{c.kind} · {Math.round(c.confidence*100)}% · candidato</small></div><button onClick={()=>confirmCandidate(c)}>✓</button><button onClick={()=>rejectCandidate(c)}>×</button></article>)}</section>}</>}
     {tab==='tasks'&&<section className="panel"><div className="panelhead"><div><small>PERSONAL WORK QUEUE</small><h2>Attività</h2></div><span>{pending} aperte</span></div><TaskInput onAdd={addTask}/>{store.goals.filter(g=>g.status==='active').slice(0,3).map(g=><div className="architecture" key={g.id}><b>Obiettivo: {g.title}</b><p>{store.plan.filter(p=>p.goalId===g.id).map((p,i)=>`${i+1}. ${p.title}${p.status==='ready'?' ← prossimo':''}`).join('\n')||'Nessun passo ancora disponibile.'}</p></div>)}<div className="task-list">{!store.tasks.length?<p className="empty">Nessuna attività.</p>:store.tasks.map(t=><label className="task" key={t.id}><input type="checkbox" checked={t.done} onChange={()=>{setStore(s=>({...s,tasks:s.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x),governor:'verifying'}));log('attività',`${t.done?'Riaperta':'Completata'}: ${t.title}`);scheduleAutonomy('modifica attività')}}/><span className={t.done?'done':''}>{t.title}</span><button type="button" onClick={e=>{e.preventDefault();setStore(s=>({...s,tasks:s.tasks.filter(x=>x.id!==t.id)}));log('attività',`Eliminata: ${t.title}`)}}>×</button></label>)}</div></section>}
     {tab==='activity'&&<section className="panel"><div className="panelhead"><div><small>LEARNING & AUDIT</small><h2>Registro</h2></div><span>{store.activity.length}</span></div><div className="last-action"><span>ULTIMA DECISIONE</span><b>{store.lastDecision}</b></div>{store.learning.slice(0,15).map(x=><div className="log" key={x.id}><i>impara</i><span>{x.text}</span><time>{Math.round(x.confidence*100)}% · {x.evidence} evidenze</time></div>)}{store.activity.slice(0,80).map(a=><div className="log" key={a.id}><i>{a.type}</i><span>{a.text}</span><time>{new Date(a.createdAt).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></div>)}{!store.activity.length&&!store.learning.length&&<p className="empty">Nessuna attività registrata.</p>}</section>}
+    {tab==='rete'&&<NeuralGraphPanel/>}
     {tab==='settings'&&<section className="panel settings"><div className="panelhead"><div><small>PHONE CONTROL PLANE</small><h2>Impostazioni</h2></div></div><div className="setting"><div><b>Governor autonomo</b><span>Event-driven: niente polling aggressivo. Deduplica, decisione “non fare nulla” e stato persistente evitano i loop.</span></div><strong>{store.governor}</strong></div><div className="setting"><div><b>Autonomia locale</b><span>Opera nel browser quando la PWA è attiva. iOS può sospendere JavaScript in background.</span></div><button className={`switch ${store.autonomy?'on':''}`} onClick={()=>{const n=!store.autonomy;setStore(s=>({...s,autonomy:n,governor:n?'waiting':'idle'}));log('sistema',`Autonomia ${n?'attivata':'messa in pausa'}`)}}><span/></button></div><div className="setting"><div><b>Voce</b><span>Riconoscimento vocale + sintesi vocale del dispositivo/browser. Il nucleo di Pandora non viene sostituito da un’AI cloud.</span></div><strong>{voiceListening?'ascolto':voiceSpeaking?'parla':'pronta'}</strong></div><div className="setting"><div><b>Memoria adattiva</b><span>Fatti consolidati e candidati sono separati; confidenza ed evidenze crescono con le conferme.</span></div><strong>{store.memories.filter(m=>m.status!=='superseded').length}</strong></div><div className="architecture"><b>Architettura v2.3 — Action Engine</b><p>Percezione → contesto → memoria → ragionamento → Governor → azione → verifica → apprendimento → attesa.</p><small>Il nucleo resta phone-first e non richiede OpenAI, ChatGPT, Anthropic o Google come cervello. Ricerca web e voce sono strumenti/interfacce.</small></div><div className="danger"><div><b>Azzeramento locale</b><span>Cancella tutti i dati salvati su questo telefono.</span></div><button onClick={clearAll}>Cancella dati</button></div></section>}
     <footer><span>Pandora v2.3</span><span>·</span><span>phone-first</span><span>·</span><span>autonomy-governor</span><span>·</span><span>voice</span></footer>
   </main>;
@@ -315,3 +316,66 @@ export default function Home(){
 function TaskInput({onAdd}:{onAdd:(title:string)=>void}){const[v,setV]=useState('');const submit=()=>{if(v.trim()){onAdd(v);setV('')}};return <div className="addtask"><input value={v} onChange={e=>setV(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')submit()}} placeholder="Nuova attività…"/><button onClick={submit}>Aggiungi</button></div>}
 
 function ResearchPanel({query,setQuery,loading,run,researches,onSave}:{query:string;setQuery:(v:string)=>void;loading:boolean;run:()=>void;researches:Research[];onSave:(r:Research)=>void}){return <section className="panel research"><div className="panelhead"><div><small>LOCAL RESEARCH ENGINE</small><h2>Ricerca & Analisi</h2></div><span>{researches.length}</span></div><p className="empty" style={{padding:'4px 4px 14px'}}>Inserisci una domanda. Pandora interroga una fonte web pubblica, raccoglie risultati, estrae il testo disponibile e costruisce una prima sintesi verificabile.</p><div className="researchbar"><input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')run()}} placeholder="Es. Come funziona la fotosintesi?"/><button onClick={run} disabled={loading||!query.trim()}>{loading?'…':'Cerca'}</button></div>{researches.length===0?<p className="empty">Nessuna ricerca ancora.</p>:researches.map(r=><article className="research-card" key={r.id}><div className="research-head"><div><small>{new Date(r.createdAt).toLocaleString('it-IT')}</small><h3>{r.query}</h3></div><button onClick={()=>onSave(r)}>+ Memoria</button></div><p>{r.summary||'Nessuna sintesi disponibile.'}</p><div className="keywords">{r.keywords.map(k=><span key={k}>{k}</span>)}</div><details><summary>{r.sources.length} fonti consultate</summary>{r.sources.map(s=><div className="source" key={s.id}><a href={s.url} target="_blank" rel="noreferrer">{s.title}</a><small>{s.source}</small><p>{s.extract}</p></div>)}</details></article>)}</section>}
+
+type GNode={id:string;label:string;kind:string;activation:number;x:number;y:number;vx:number;vy:number};
+type GEdge={id:string;a:string;b:string;weight:number};
+type RawNode={id:string;label:string;kind:string;activation:number};
+type RawEdge={id:string;a:string;b:string;weight:number};
+
+function NeuralGraphPanel(){
+  const W=680,H=420;
+  const [nodes,setNodes]=useState<GNode[]>([]);
+  const [edges,setEdges]=useState<GEdge[]>([]);
+  const [stats,setStats]=useState<{totalNodes:number;totalEdges:number}>({totalNodes:0,totalEdges:0});
+  const [offline,setOffline]=useState(false);
+  const posRef=useRef<Map<string,{x:number;y:number;vx:number;vy:number}>>(new Map());
+
+  useEffect(()=>{
+    let cancelled=false;
+    const load=async()=>{
+      try{
+        const r=await fetch('/api/core/graph',{cache:'no-store'});
+        const d=await r.json();
+        if(cancelled)return;
+        if(!d?.ok){setOffline(true);return;}
+        setOffline(false);
+        const rawNodes:RawNode[]=d.nodes||[]; const rawEdges:RawEdge[]=d.edges||[];
+        const pos=posRef.current;
+        const ids=new Set(rawNodes.map(n=>n.id));
+        for(const k of Array.from(pos.keys()))if(!ids.has(k))pos.delete(k);
+        for(const n of rawNodes)if(!pos.has(n.id))pos.set(n.id,{x:W/2+(Math.random()-.5)*220,y:H/2+(Math.random()-.5)*220,vx:0,vy:0});
+        for(let iter=0;iter<40;iter++){
+          for(const n of rawNodes){
+            const p=pos.get(n.id)!; let fx=(W/2-p.x)*0.0025,fy=(H/2-p.y)*0.0025;
+            for(const m of rawNodes){if(m.id===n.id)continue;const q=pos.get(m.id)!;const dx=p.x-q.x,dy=p.y-q.y;const d2=Math.max(30,dx*dx+dy*dy);const rep=900/d2;fx+=dx*rep*0.02;fy+=dy*rep*0.02;}
+            p.vx=(p.vx+fx)*0.6;p.vy=(p.vy+fy)*0.6;
+          }
+          for(const e of rawEdges){
+            const pa=pos.get(e.a),pb=pos.get(e.b);if(!pa||!pb)continue;
+            const dx=pb.x-pa.x,dy=pb.y-pa.y;const dist=Math.sqrt(dx*dx+dy*dy)||1;const target=70-e.weight*40;const f=(dist-target)*0.02;const ux=dx/dist,uy=dy/dist;
+            pa.vx+=ux*f;pa.vy+=uy*f;pb.vx-=ux*f;pb.vy-=uy*f;
+          }
+          for(const n of rawNodes){const p=pos.get(n.id)!;p.x=Math.min(W-24,Math.max(24,p.x+p.vx));p.y=Math.min(H-24,Math.max(24,p.y+p.vy));}
+        }
+        setNodes(rawNodes.map(n=>({...n,...pos.get(n.id)!}) as GNode));
+        setEdges(rawEdges);
+        setStats(d.stats||{totalNodes:0,totalEdges:0});
+      }catch{if(!cancelled)setOffline(true);}
+    };
+    load();const t=window.setInterval(load,4000);return()=>{cancelled=true;window.clearInterval(t);};
+  },[]);
+
+  return <section className="panel neural">
+    <div className="panelhead"><div><small>ASSOCIATIVE NETWORK</small><h2>Rete Neurale</h2></div><span>{stats.totalNodes} neuroni · {stats.totalEdges} sinapsi</span></div>
+    {offline?<p className="empty">Pandora Core non raggiungibile: la rete associativa vive lì, quindi qui non è visibile finché il core non è online.</p>:
+     nodes.length===0?<p className="empty">La rete si popola parlando con Pandora o insegnandole fatti da ricordare.</p>:
+    <svg viewBox={`0 0 ${W} ${H}`} className="neural-svg">
+      {edges.map(e=>{const a=nodes.find(n=>n.id===e.a),b=nodes.find(n=>n.id===e.b);if(!a||!b)return null;return <line key={e.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="synapse" strokeWidth={0.5+e.weight*3} opacity={0.15+e.weight*0.6}/>;})}
+      {nodes.map(n=><g key={n.id} transform={`translate(${n.x},${n.y})`}>
+        <circle r={n.kind==='memory'?7+n.activation*5:5+n.activation*4} className={`neuron ${n.kind} ${n.activation>0.4?'pulse':''}`} opacity={0.35+n.activation*0.65}/>
+        <text y={-(n.kind==='memory'?12:9)} textAnchor="middle" className="neuron-label">{n.label.slice(0,16)}</text>
+      </g>)}
+    </svg>}
+  </section>;
+}
+
