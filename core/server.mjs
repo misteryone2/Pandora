@@ -57,14 +57,15 @@ const defaultState = () => ({
   learning: [],
   queue: [],
   autonomyStats: { cycles: 0, actions: 0, skipped: 0, lastCycleAt: null, lastActionAt: null },
-  permissions: { safeLocal: 'auto', external: 'confirm', destructive: 'confirm' }
+  permissions: { safeLocal: 'auto', external: 'confirm', destructive: 'confirm' },
+  graph: { nodes: [], edges: [] }
 });
 
 async function load() {
   await fs.mkdir(DATA, { recursive: true });
   try {
     const parsed = JSON.parse(await fs.readFile(DB, 'utf8'));
-    return { ...defaultState(), ...parsed, autonomyStats: { ...defaultState().autonomyStats, ...(parsed.autonomyStats || {}) }, queue: parsed.queue || [] };
+    return { ...defaultState(), ...parsed, autonomyStats: { ...defaultState().autonomyStats, ...(parsed.autonomyStats || {}) }, queue: parsed.queue || [], graph: { nodes: parsed.graph?.nodes || [], edges: parsed.graph?.edges || [] } };
   } catch {
     const s = defaultState(); await save(s); return s;
   }
@@ -89,9 +90,9 @@ function memory(text, category='general', confidence=.75, source='user') {
   const clean = text.trim();
   if (!clean) return null;
   const found = state.memories.find(m => m.text.toLowerCase() === clean.toLowerCase());
-  if (found) { found.confidence = Math.min(1, found.confidence + .05); found.updatedAt = iso(); return found; }
+  if (found) { found.confidence = Math.min(1, found.confidence + .05); found.updatedAt = iso(); learnAssociation(clean, `m:${found.id}`, clean); return found; }
   const m = { id:id(), text:clean, category, confidence:Math.max(0, Math.min(1, confidence)), source, createdAt:iso(), updatedAt:iso() };
-  state.memories.unshift(m); return m;
+  state.memories.unshift(m); learnAssociation(clean, `m:${m.id}`, clean); return m;
 }
 function task(title, source='user', extra={}) {
   const t = { id:id(), title:title.trim(), done:false, source, priority:Number(extra.priority || 50), dueAt:extra.dueAt || null, attempts:0, lastRunAt:null, createdAt:iso(), updatedAt:iso() };
@@ -101,6 +102,49 @@ function tokenize(s) { return s.toLowerCase().normalize('NFD').replace(/[\u0300-
 function relevantMemories(text, limit=8) {
   const q = new Set(tokenize(text));
   return state.memories.map(m => ({m, score: tokenize(m.text).filter(x=>q.has(x)).length + (m.category==='preferenza' ? .25 : 0)})).sort((a,b)=>b.score-a.score).slice(0,limit).filter(x=>x.score>0).map(x=>x.m);
+}
+
+// ---- Associative network (neurons/synapses) -------------------------------
+// Nodes: concepts extracted from text, plus one node per consolidated memory.
+// Edges: undirected, weighted connections that strengthen on co-activation
+// (Hebbian-style "fire together, wire together") and decay over time.
+function slug(s) { return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''); }
+function concepts(text, limit=6) { return Array.from(new Set(tokenize(text))).filter(w=>w.length>3).slice(0,limit); }
+function getNode(nid, label, kind) {
+  let n = state.graph.nodes.find(x => x.id === nid);
+  if (!n) { n = { id:nid, label:String(label||nid).slice(0,80), kind, activation:0, createdAt:iso(), lastActiveAt:iso() }; state.graph.nodes.push(n); }
+  n.activation = Math.min(1, n.activation + 0.3);
+  n.lastActiveAt = iso();
+  return n;
+}
+function getEdge(a, b) {
+  if (a === b) return null;
+  const [x,y] = [a,b].sort();
+  const eid = `${x}~${y}`;
+  let e = state.graph.edges.find(x => x.id === eid);
+  if (!e) { e = { id:eid, a:x, b:y, weight:0, createdAt:iso(), lastActiveAt:iso() }; state.graph.edges.push(e); }
+  return e;
+}
+function bond(a, b, amount=0.18) {
+  const e = getEdge(a, b); if (!e) return;
+  e.weight = Math.min(1, e.weight + amount);
+  e.lastActiveAt = iso();
+}
+function learnAssociation(text, anchorId=null, anchorLabel=null) {
+  const cs = concepts(text);
+  const ids = cs.map(c => { const cid = `c:${slug(c)}`; getNode(cid, c, 'concept'); return cid; });
+  if (anchorId) { getNode(anchorId, anchorLabel || text.slice(0,60), 'memory'); ids.forEach(cid => bond(anchorId, cid, 0.22)); }
+  for (let i=0;i<ids.length;i++) for (let j=i+1;j<ids.length;j++) bond(ids[i], ids[j], 0.12);
+  if (state.graph.nodes.length > 400) state.graph.nodes = state.graph.nodes.sort((a,b)=>b.activation-a.activation).slice(0,400);
+  if (state.graph.edges.length > 900) state.graph.edges = state.graph.edges.sort((a,b)=>b.weight-a.weight).slice(0,900);
+}
+function decayGraph() {
+  const DECAY = 0.985;
+  for (const n of state.graph.nodes) n.activation = Math.max(0, n.activation * DECAY);
+  for (const e of state.graph.edges) e.weight = Math.max(0, e.weight * DECAY);
+  state.graph.edges = state.graph.edges.filter(e => e.weight > 0.02);
+  const connected = new Set(state.graph.edges.flatMap(e => [e.a, e.b]));
+  state.graph.nodes = state.graph.nodes.filter(n => n.activation > 0.01 || connected.has(n.id));
 }
 
 // ---- Local LLM adapter ----------------------------------------------------
@@ -248,6 +292,7 @@ function localCognition(text) {
   if(/quante attivit[aà]|attivit[aà] aperte/i.test(l)){return {text:`Hai ${openTasks().length} attività aperte.`,actions:[]};}
   if(/stato|come stai|cosa puoi fare/i.test(l)){return {text:`Sono Pandora Core, locale. Ho ${state.memories.length} memorie, ${openTasks().length} attività aperte e autonomia ${state.autonomy?'attiva':'in pausa'}. Il ciclo autonomo è ${state.autonomy?'operativo':'sospeso'}.`,actions:[]};}
   const rel=relevantMemories(raw);
+  if (rel.length) for (const m of rel) learnAssociation(raw, `m:${m.id}`, m.text);
   if (/^(ciao|salve|hey|buongiorno|buonasera)\b/i.test(raw)) return {text:'Ciao! Sono qui. Dimmi cosa vuoi fare e proverò a gestirlo localmente.',actions:[]};
   if (/\b(aiut|puoi|cosa sai fare|funzion)\b/i.test(l)) return {text:'Posso conversare, ricordare informazioni, creare e completare attività, pianificare lavori locali e mantenere una memoria persistente. Se il modello locale è disponibile posso anche interpretare richieste più complesse.',actions:[]};
   if (/\b(perch[eé]|come mai|spieg)\b/i.test(l)) return {text:`Posso analizzare la richiesta localmente. ${rel.length ? `Ho trovato nella memoria elementi collegati: ${rel.map(m=>m.text).join('; ')}.` : 'Non ho trovato memorie direttamente pertinenti.'}`,actions:[]};
@@ -327,7 +372,7 @@ async function autonomyCycle() {
   try {
     state.autonomyStats.cycles++;
     state.autonomyStats.lastCycleAt=iso();
-    if (now() >= maintenanceAt) { deriveTasks(); maintenanceAt = now() + MAINTENANCE_MS; }
+    if (now() >= maintenanceAt) { deriveTasks(); decayGraph(); maintenanceAt = now() + MAINTENANCE_MS; }
     let steps=0, changed=false;
     while (steps < MAX_STEPS) {
       const item=nextWork();
@@ -367,6 +412,12 @@ async function handle(req,res){
     const u=new URL(req.url,`http://${req.headers.host||'localhost'}`); const p=u.pathname;
     if(req.method==='GET'&&p==='/health') return respond(res,{ok:true,name:'Pandora Core',version:'1.4.0',mode:'local-autonomous',autonomy:state.autonomy,cycleRunning,queue:state.queue.length,stats:state.autonomyStats,now:iso()});
     if(req.method==='GET'&&p==='/state') return respond(res,{ok:true,state});
+    if(req.method==='GET'&&p==='/graph'){
+      const nodes=state.graph.nodes.slice().sort((a,b)=>b.activation-a.activation).slice(0,220).map(n=>({id:n.id,label:n.label,kind:n.kind,activation:Math.round(n.activation*100)/100}));
+      const nodeIds=new Set(nodes.map(n=>n.id));
+      const edges=state.graph.edges.filter(e=>nodeIds.has(e.a)&&nodeIds.has(e.b)).sort((a,b)=>b.weight-a.weight).slice(0,500).map(e=>({id:e.id,a:e.a,b:e.b,weight:Math.round(e.weight*100)/100}));
+      return respond(res,{ok:true,nodes,edges,stats:{totalNodes:state.graph.nodes.length,totalEdges:state.graph.edges.length}});
+    }
     if(req.method==='GET'&&p==='/llm/status') return respond(res,{ok:true,enabled:LLM_ENABLED,provider:'ollama-local',baseUrl:LLM_BASE_URL,selectedModel:LLM_MODEL,available:llmLast.ok,stats:llmLast});
     if(req.method==='GET'&&p==='/llm/models') return respond(res,{ok:true,provider:'ollama-local',selectedModel:LLM_MODEL,models:await listLocalModels()});
     if(req.method==='POST'&&p==='/llm/select'){const b=await body(req);const model=String(b.model||'').trim();if(!model)throw new Error('model required');const models=await listLocalModels();if(!models.some(m=>m.name===model))throw new Error('model_not_installed');LLM_MODEL=model;llmLast={...llmLast,model,ok:false,error:null};audit('system',`Modello locale selezionato: ${model}`);await save();return respond(res,{ok:true,selectedModel:model,note:'Selezione valida per il processo corrente; per renderla predefinita imposta PANDORA_LLM_MODEL.'});}
@@ -374,6 +425,7 @@ async function handle(req,res){
     if(req.method==='POST'&&p==='/chat'){
       const b=await body(req), text=String(b.text||'').trim(); if(!text) throw new Error('text required');
       state.messages.push({id:id(),role:'user',text,createdAt:iso()});
+      learnAssociation(text);
       let result=localCognition(text);
       let mode='deterministic'; let plan=null; let toolResults=[];
       // Fast path for explicit deterministic commands; use the LLM only for semantic work.
