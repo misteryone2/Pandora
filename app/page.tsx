@@ -74,9 +74,12 @@ export default function Home(){
   const voiceReplyRef=useRef(false);
   const autonomyLock=useRef(false);
   const autonomyTimer=useRef<number|null>(null);
+  const storeRef=useRef<Store>(empty);
+  const [coreOnline,setCoreOnline]=useState<boolean|null>(null);
 
   useEffect(()=>{const s=readStore();if(!s.messages.length)s.messages=[{id:id(),role:'pandora',text:'Ciao. Sono Pandora. Il mio nucleo è locale: memoria, contesto, autonomia e strumenti sono separati e verificabili. Posso anche interagire vocalmente quando il browser lo consente.',createdAt:iso(),mode:'phone-local'}];setStore(s);setHydrated(true);if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});},[]);
   useEffect(()=>{if(hydrated)writeStore(store);},[store,hydrated]);
+  useEffect(()=>{storeRef.current=store;},[store]);
 
   const log=useCallback((type:string,text:string)=>setStore(s=>({...s,activity:[{id:id(),type,text,createdAt:iso()},...s.activity].slice(0,180)})),[]);
 
@@ -100,6 +103,12 @@ export default function Home(){
   },[hydrated,store.autonomy]);
 
   useEffect(()=>{if(hydrated&&store.autonomy)scheduleAutonomy('stato');return()=>{if(autonomyTimer.current)window.clearTimeout(autonomyTimer.current)};},[hydrated,store.autonomy,scheduleAutonomy]);
+
+  useEffect(()=>{
+    let cancelled=false;
+    const ping=async()=>{try{const r=await fetch('/api/core/health',{cache:'no-store'});const d=await r.json().catch(()=>({ok:false}));if(!cancelled)setCoreOnline(Boolean(d?.ok));}catch{if(!cancelled)setCoreOnline(false);}};
+    ping();const t=window.setInterval(ping,20000);return()=>{cancelled=true;window.clearInterval(t);};
+  },[]);
 
   const preferenceDomain=(text:string)=>{const l=text.toLowerCase();
     if(/rispost|rispon|dettagliat|conciso|breve|incisiv|pratic/.test(l))return 'stile-risposta';
@@ -129,7 +138,16 @@ export default function Home(){
   const inferLearning=(text:string)=>{const patterns:[RegExp,string,string,number,boolean][]=[[/\bmi chiamo\s+([a-zà-ÿ][a-zà-ÿ' -]{1,40})/i,'profilo','Hai indicato il nome: $1',.98,true],[/\bpreferisco\s+(.{2,120})$/i,'preferenza','Preferisci: $1',.84,true],[/\bmi piace\s+(.{2,120})$/i,'preferenza','Ti piace: $1',.84,true],[/\bnon mi piace\s+(.{2,120})$/i,'preferenza','Non ti piace: $1',.84,true],[/\bnon voglio\s+(.{2,120})$/i,'vincolo','Vincolo: $1',.9,true],[/\bvorrei\s+(.{2,120})$/i,'obiettivo','Possibile obiettivo: $1',.68,false],[/\bdevo\s+(.{2,120})$/i,'obiettivo','Possibile attività: $1',.68,false],[/\bmi interessa\s+(.{2,120})$/i,'interesse','Interesse: $1',.65,false]];for(const[r,kind,t,c,strong]of patterns){const m=r.exec(text);if(!m)continue;const value=m[1].trim().replace(/[.!?]+$/,'');if(value.length<2)continue;const fact=t.replace('$1',value);if(strong)rememberFact(fact,kind==='profilo'?'Profilo':kind==='vincolo'?'Vincolo':'Preferenza',c);else addCandidate(fact,kind,c,'conversazione');return{kind,value,strong};}return null;};
   const relevant=(text:string)=>{const words=text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(w=>w.length>3);return store.memories.filter(m=>m.status!=='superseded').map(m=>({m,score:words.filter(w=>m.text.toLowerCase().includes(w)).length})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,4).map(x=>x.m);};
 
-  const addTask=(title:string)=>{const clean=title.trim();if(!clean)return false;let created=false;setStore(s=>{const existing=s.tasks.find(t=>!t.done&&t.title.trim().toLowerCase()===clean.toLowerCase());if(existing)return {...s,governor:'verifying',lastDecision:`task:duplicate:${existing.id}`};created=true;const task={id:id(),title:clean,done:false,createdAt:iso(),priority:1};return {...s,tasks:[task,...s.tasks],actions:s.actions+1,governor:'verifying',lastDecision:`task:create:${task.id}`,activity:[{id:id(),type:'azione',text:`Attività creata e verificata: ${clean}`,createdAt:iso()},...s.activity].slice(0,180)};});if(created){log('attività',`Creata e verificata: ${clean}`);scheduleAutonomy('nuova attività');}return created;};
+  const addTask=useCallback((title:string)=>{
+    const clean=title.trim(); if(!clean)return false;
+    const existing=storeRef.current.tasks.find(t=>!t.done&&t.title.trim().toLowerCase()===clean.toLowerCase());
+    if(existing){setStore(s=>({...s,governor:'verifying',lastDecision:`task:duplicate:${existing.id}`}));return false;}
+    const task={id:id(),title:clean,done:false,createdAt:iso(),priority:1};
+    setStore(s=>({...s,tasks:[task,...s.tasks],actions:s.actions+1,governor:'verifying',lastDecision:`task:create:${task.id}`,activity:[{id:id(),type:'azione',text:`Attività creata e verificata: ${clean}`,createdAt:iso()},...s.activity].slice(0,180)}));
+    log('attività',`Creata e verificata: ${clean}`);
+    scheduleAutonomy('nuova attività');
+    return true;
+  },[log,scheduleAutonomy]);
 
   const buildPlan=useCallback((goalTitle:string)=>{
     const now=iso(); const goal:Goal={id:id(),title:goalTitle,status:'active',priority:2,createdAt:now,updatedAt:now,source:'conversazione'};
@@ -250,7 +268,22 @@ export default function Home(){
 
   const speak=useCallback((text:string)=>{if(!('speechSynthesis'in window))return;window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='it-IT';u.rate=.98;u.onstart=()=>setVoiceSpeaking(true);u.onend=()=>setVoiceSpeaking(false);u.onerror=()=>setVoiceSpeaking(false);window.speechSynthesis.speak(u);},[]);
 
-  const send=useCallback(async(textOverride?:string,fromVoice=false)=>{const text=(textOverride??input).trim();if(!text||loading)return;setLoading(true);const u:Message={id:id(),role:'user',text,createdAt:iso(),mode:fromVoice?'voice':'phone-local'};setStore(s=>({...s,messages:[...s.messages,u].slice(-120),governor:'thinking'}));if(!textOverride)setInput('');log('conversazione',`Messaggio ricevuto: ${text.slice(0,100)}`);await new Promise(r=>setTimeout(r,80));const reply=await answer(text);setStore(s=>{const replyMessage:Message={id:id(),role:'pandora',text:reply,createdAt:iso(),mode:fromVoice?'voice':'phone-local'};return {...s,messages:[...s.messages,replyMessage].slice(-120),governor:'verifying',actions:s.actions+1,lastDecision:`reply:${text.slice(0,80)}`};});setLoading(false);scheduleAutonomy('risposta completata');if(fromVoice)window.setTimeout(()=>speak(reply),50);},[answer,input,loading,log,scheduleAutonomy,speak]);
+  const askCore=useCallback(async(text:string):Promise<{text:string;mode:string}|null>=>{
+    try{
+      const r=await fetch('/api/core/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text})});
+      if(!r.ok)return null;
+      const data=await r.json();
+      if(!data?.ok||typeof data.text!=='string')return null;
+      return {text:data.text,mode:data.mode==='local-llm'?'core-llm':'core-deterministic'};
+    }catch{return null;}
+  },[]);
+
+  const send=useCallback(async(textOverride?:string,fromVoice=false)=>{const text=(textOverride??input).trim();if(!text||loading)return;setLoading(true);const u:Message={id:id(),role:'user',text,createdAt:iso(),mode:fromVoice?'voice':'phone-local'};setStore(s=>({...s,messages:[...s.messages,u].slice(-120),governor:'thinking'}));if(!textOverride)setInput('');log('conversazione',`Messaggio ricevuto: ${text.slice(0,100)}`);
+    const core=await askCore(text);
+    let reply:string; let replyMode:string;
+    if(core){reply=core.text;replyMode=core.mode;setCoreOnline(true);log('core',`Pandora Core (${core.mode}) ha risposto.`);}
+    else{setCoreOnline(false);await new Promise(r=>setTimeout(r,80));reply=await answer(text);replyMode=fromVoice?'voice':'phone-local';}
+    setStore(s=>{const replyMessage:Message={id:id(),role:'pandora',text:reply,createdAt:iso(),mode:replyMode};return {...s,messages:[...s.messages,replyMessage].slice(-120),governor:'verifying',actions:s.actions+1,lastDecision:`reply:${text.slice(0,80)}`};});setLoading(false);scheduleAutonomy('risposta completata');if(fromVoice)window.setTimeout(()=>speak(reply),50);},[answer,askCore,input,loading,log,scheduleAutonomy,speak]);
 
   const startVoice=()=>{const C=window.SpeechRecognition||window.webkitSpeechRecognition;if(!C){log('voce','Riconoscimento vocale non disponibile nel browser.');return;}if(voiceListening){recognitionRef.current?.stop();return;}const r=new C();r.lang='it-IT';r.interimResults=false;r.continuous=false;r.onresult=(e:SpeechRecognitionResultEvent)=>{const text=e.results[0]?.[0]?.transcript?.trim();if(text){voiceReplyRef.current=true;send(text,true);}};r.onend=()=>{setVoiceListening(false);recognitionRef.current=null;};r.onerror=()=>{setVoiceListening(false);recognitionRef.current=null;log('voce','Riconoscimento vocale terminato.');};recognitionRef.current=r;setVoiceListening(true);try{r.start();}catch{setVoiceListening(false);recognitionRef.current=null;}};
 
@@ -265,7 +298,7 @@ export default function Home(){
   const clearAll=()=>{if(confirm('Eliminare memoria, attività, conversazioni e registro locali?'))setStore({...empty,messages:[]});};
 
   return <main>
-    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className="status ai">● {voiceListening?'Ascolto':voiceSpeaking?'Parlo':'Locale'}</span><span className="version">v2.3</span></div></header>
+    <header><div className="brand"><span className="orb">✦</span><div><h1>Pandora</h1><p>Personal Autonomous Assistant</p></div></div><div className="header-right"><span className={`status ${coreOnline?'ai':''}`} title={coreOnline?'Pandora Core (LLM locale) raggiungibile':'Pandora Core non raggiungibile: uso il motore locale phone-first'}>● Core {coreOnline===null?'…':coreOnline?'online':'offline'}</span><span className="status ai">● {voiceListening?'Ascolto':voiceSpeaking?'Parlo':'Locale'}</span><span className="version">v2.3</span></div></header>
     <section className="hero"><div><small>STATO DEL SISTEMA</small><h2>{store.governor==='blocked'?'Governor bloccato':store.governor==='thinking'?'Elaborazione…':store.autonomy?'Nucleo operativo.':'Autonomia in pausa.'}</h2><p>Decisioni autonome guidate da eventi, con deduplica, stato esplicito e validazione. Memoria, voce e ricerca restano moduli separati.</p></div><div className="stats"><div><b>{store.memories.filter(m=>m.status!=='superseded').length}</b><span>memorie</span></div><div><b>{pending}</b><span>aperte</span></div><div><b>{store.cycles}</b><span>cicli</span></div></div></section>
     <nav className="tabs">{(['chat','research','memory','tasks','activity','settings'] as Tab[]).map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{x==='chat'?'Pandora':x==='research'?'Ricerca':x==='memory'?'Memoria':x==='tasks'?'Attività':x==='activity'?'Registro':'Impostazioni'}</button>)}</nav>
 
