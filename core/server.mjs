@@ -349,18 +349,28 @@ async function autonomyCycle() {
   } finally { cycleRunning=false; }
 }
 
-function respond(body,status=200) { const b=JSON.stringify(body); return ['HTTP/1.1 '+status+' OK','Content-Type: application/json; charset=utf-8',`Content-Length: ${Buffer.byteLength(b)}`,'Access-Control-Allow-Origin: *','Access-Control-Allow-Headers: Content-Type','Access-Control-Allow-Methods: GET,POST,OPTIONS','Connection: close','',b].join('\r\n'); }
+function respond(res,body,status=200) {
+  const b=JSON.stringify(body);
+  res.writeHead(status,{
+    'Content-Type':'application/json; charset=utf-8',
+    'Content-Length':Buffer.byteLength(b),
+    'Access-Control-Allow-Origin':'*',
+    'Access-Control-Allow-Headers':'Content-Type',
+    'Access-Control-Allow-Methods':'GET,POST,OPTIONS'
+  });
+  res.end(b);
+}
 async function body(req){let d=''; for await(const c of req)d+=c; return d?JSON.parse(d):{};}
 async function handle(req,res){
   if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type','Access-Control-Allow-Methods':'GET,POST,OPTIONS'});return res.end();}
   try{
     const u=new URL(req.url,`http://${req.headers.host||'localhost'}`); const p=u.pathname;
-    if(req.method==='GET'&&p==='/health') return res.end(respond({ok:true,name:'Pandora Core',version:'1.4.0',mode:'local-autonomous',autonomy:state.autonomy,cycleRunning,queue:state.queue.length,stats:state.autonomyStats,now:iso()}));
-    if(req.method==='GET'&&p==='/state') return res.end(respond({ok:true,state}));
-    if(req.method==='GET'&&p==='/llm/status') return res.end(respond({ok:true,enabled:LLM_ENABLED,provider:'ollama-local',baseUrl:LLM_BASE_URL,selectedModel:LLM_MODEL,available:llmLast.ok,stats:llmLast}));
-    if(req.method==='GET'&&p==='/llm/models') return res.end(respond({ok:true,provider:'ollama-local',selectedModel:LLM_MODEL,models:await listLocalModels()}));
-    if(req.method==='POST'&&p==='/llm/select'){const b=await body(req);const model=String(b.model||'').trim();if(!model)throw new Error('model required');const models=await listLocalModels();if(!models.some(m=>m.name===model))throw new Error('model_not_installed');LLM_MODEL=model;llmLast={...llmLast,model,ok:false,error:null};audit('system',`Modello locale selezionato: ${model}`);await save();return res.end(respond({ok:true,selectedModel:model,note:'Selezione valida per il processo corrente; per renderla predefinita imposta PANDORA_LLM_MODEL.'}));}
-    if(req.method==='GET'&&p==='/autonomy') return res.end(respond({ok:true,autonomy:state.autonomy,queue:state.queue.length,stats:state.autonomyStats,openTasks:openTasks().length}));
+    if(req.method==='GET'&&p==='/health') return respond(res,{ok:true,name:'Pandora Core',version:'1.4.0',mode:'local-autonomous',autonomy:state.autonomy,cycleRunning,queue:state.queue.length,stats:state.autonomyStats,now:iso()});
+    if(req.method==='GET'&&p==='/state') return respond(res,{ok:true,state});
+    if(req.method==='GET'&&p==='/llm/status') return respond(res,{ok:true,enabled:LLM_ENABLED,provider:'ollama-local',baseUrl:LLM_BASE_URL,selectedModel:LLM_MODEL,available:llmLast.ok,stats:llmLast});
+    if(req.method==='GET'&&p==='/llm/models') return respond(res,{ok:true,provider:'ollama-local',selectedModel:LLM_MODEL,models:await listLocalModels()});
+    if(req.method==='POST'&&p==='/llm/select'){const b=await body(req);const model=String(b.model||'').trim();if(!model)throw new Error('model required');const models=await listLocalModels();if(!models.some(m=>m.name===model))throw new Error('model_not_installed');LLM_MODEL=model;llmLast={...llmLast,model,ok:false,error:null};audit('system',`Modello locale selezionato: ${model}`);await save();return respond(res,{ok:true,selectedModel:model,note:'Selezione valida per il processo corrente; per renderla predefinita imposta PANDORA_LLM_MODEL.'});}
+    if(req.method==='GET'&&p==='/autonomy') return respond(res,{ok:true,autonomy:state.autonomy,queue:state.queue.length,stats:state.autonomyStats,openTasks:openTasks().length});
     if(req.method==='POST'&&p==='/chat'){
       const b=await body(req), text=String(b.text||'').trim(); if(!text) throw new Error('text required');
       state.messages.push({id:id(),role:'user',text,createdAt:iso()});
@@ -377,14 +387,14 @@ async function handle(req,res){
       }
       state.messages.push({id:id(),role:'pandora',text:result.text,createdAt:iso(),mode,model:mode==='local-llm'?LLM_MODEL:null});
       audit('conversation',`Richiesta: ${text.slice(0,160)}`,{mode}); await save(); await autonomyCycle();
-      return res.end(respond({ok:true,...result,mode,plan,toolResults,state:{memoryCount:state.memories.length,openTasks:openTasks().length,queue:state.queue.length}}));
+      return respond(res,{ok:true,...result,mode,plan,toolResults,state:{memoryCount:state.memories.length,openTasks:openTasks().length,queue:state.queue.length}});
     }
-    if(req.method==='POST'&&p==='/memory'){const b=await body(req);const m=memory(String(b.text||''),String(b.category||'general'),Number(b.confidence||.75),'api');if(!m)throw new Error('text required');audit('memory',`Memoria aggiunta: ${m.text}`);enqueue('memory_review',{memoryId:m.id},20,now()+3600000);await save();return res.end(respond({ok:true,memory:m}));}
-    if(req.method==='POST'&&p==='/tasks'){const b=await body(req);const t=task(String(b.title||''),'api',b);if(!t.title)throw new Error('title required');audit('task',`Attività creata: ${t.title}`,{taskId:t.id});enqueue('task_review',{taskId:t.id},t.priority,now());await save();return res.end(respond({ok:true,task:t}));}
-    if(req.method==='POST'&&p==='/autonomy'){const b=await body(req);state.autonomy=Boolean(b.enabled);audit('system',`Autonomia ${state.autonomy?'attivata':'messa in pausa'}`);if(state.autonomy) enqueueUnique('system_wake','wake',{reason:'autonomy_enabled'},100,now());await save();if(state.autonomy) await autonomyCycle();return res.end(respond({ok:true,autonomy:state.autonomy,queue:state.queue.length}));}
-    if(req.method==='POST'&&p==='/autonomy/wake'){if(!state.autonomy) return res.end(respond({ok:false,error:'autonomy_paused'},409));enqueueUnique('system_wake','manual',{reason:'manual'},100,now());await save();await autonomyCycle();return res.end(respond({ok:true,stats:state.autonomyStats,queue:state.queue.length}));}
-    res.end(respond({ok:false,error:'not_found'},404));
-  }catch(e){res.end(respond({ok:false,error:e.message},400));}
+    if(req.method==='POST'&&p==='/memory'){const b=await body(req);const m=memory(String(b.text||''),String(b.category||'general'),Number(b.confidence||.75),'api');if(!m)throw new Error('text required');audit('memory',`Memoria aggiunta: ${m.text}`);enqueue('memory_review',{memoryId:m.id},20,now()+3600000);await save();return respond(res,{ok:true,memory:m});}
+    if(req.method==='POST'&&p==='/tasks'){const b=await body(req);const t=task(String(b.title||''),'api',b);if(!t.title)throw new Error('title required');audit('task',`Attività creata: ${t.title}`,{taskId:t.id});enqueue('task_review',{taskId:t.id},t.priority,now());await save();return respond(res,{ok:true,task:t});}
+    if(req.method==='POST'&&p==='/autonomy'){const b=await body(req);state.autonomy=Boolean(b.enabled);audit('system',`Autonomia ${state.autonomy?'attivata':'messa in pausa'}`);if(state.autonomy) enqueueUnique('system_wake','wake',{reason:'autonomy_enabled'},100,now());await save();if(state.autonomy) await autonomyCycle();return respond(res,{ok:true,autonomy:state.autonomy,queue:state.queue.length});}
+    if(req.method==='POST'&&p==='/autonomy/wake'){if(!state.autonomy) return respond(res,{ok:false,error:'autonomy_paused'},409);enqueueUnique('system_wake','manual',{reason:'manual'},100,now());await save();await autonomyCycle();return respond(res,{ok:true,stats:state.autonomyStats,queue:state.queue.length});}
+    respond(res,{ok:false,error:'not_found'},404);
+  }catch(e){respond(res,{ok:false,error:e.message},400);}
 }
 const server=http.createServer(handle);
 server.listen(PORT,HOST,()=>{ console.log(`Pandora Core autonomous: http://${HOST}:${PORT}`); deriveTasks(); scheduleNextWake(); });
