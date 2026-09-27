@@ -1,0 +1,20 @@
+services:
+  pandora-core:
+    build:
+      context: .
+      dockerfile: core/Dockerfile
+    container_name: pandora-core
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      PANDORA_API_KEY: ${PANDORA_API_KEY}
+      # Se in futuro fai girare anche Ollama sulla stessa VM, scommenta e
+      # punta al suo indirizzo (es. http://host.docker.internal:11434 oppure
+      # al nome del servizio se lo aggiungi qui in compose):
+      # PANDORA_LLM_URL: http://ollama:11434
+    volumes:
+      - pandora_data:/app/data
+
+volumes:
+  pandora_data:
