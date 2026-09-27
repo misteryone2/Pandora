@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import crypto from 'node:crypto';
+import * as L from './logic.mjs';
 
 const ROOT = path.resolve(process.cwd());
 const DATA = path.join(ROOT, 'data');
@@ -10,7 +10,6 @@ const PORT = Number(process.env.PANDORA_PORT || 8787);
 const HOST = process.env.PANDORA_HOST || '0.0.0.0';
 const MAINTENANCE_MS = Math.max(60000, Number(process.env.PANDORA_MAINTENANCE_MS || 300000));
 const MAX_STEPS = Math.max(1, Number(process.env.PANDORA_MAX_STEPS || 3));
-const MAX_QUEUE = 1000;
 
 // ---- Local LLM -----------------------------------------------------------
 // Default provider is Ollama on localhost. No cloud endpoint is used.
@@ -39,27 +38,7 @@ const PLANNER_SCHEMA = {
   },
   required:['intent','reply','confidence','remember','actions']
 };
-const id = () => crypto.randomUUID();
-const iso = () => new Date().toISOString();
-const now = () => Date.now();
-
-const defaultState = () => ({
-  version: 3,
-  createdAt: iso(),
-  updatedAt: iso(),
-  autonomy: true,
-  memories: [],
-  tasks: [],
-  goals: [],
-  messages: [],
-  audit: [],
-  observations: [],
-  learning: [],
-  queue: [],
-  autonomyStats: { cycles: 0, actions: 0, skipped: 0, lastCycleAt: null, lastActionAt: null },
-  permissions: { safeLocal: 'auto', external: 'confirm', destructive: 'confirm' },
-  graph: { nodes: [], edges: [] }
-});
+const { id, iso, now, defaultState } = L;
 
 async function load() {
   await fs.mkdir(DATA, { recursive: true });
@@ -82,70 +61,21 @@ function save(s = state) {
   });
   return saving;
 }
-function audit(type, text, meta = {}) {
-  state.audit.unshift({ id: id(), type, text, createdAt: iso(), meta });
-  state.audit = state.audit.slice(0, 500);
-}
-function memory(text, category='general', confidence=.75, source='user') {
-  const clean = text.trim();
-  if (!clean) return null;
-  const found = state.memories.find(m => m.text.toLowerCase() === clean.toLowerCase());
-  if (found) { found.confidence = Math.min(1, found.confidence + .05); found.updatedAt = iso(); learnAssociation(clean, `m:${found.id}`, clean); return found; }
-  const m = { id:id(), text:clean, category, confidence:Math.max(0, Math.min(1, confidence)), source, createdAt:iso(), updatedAt:iso() };
-  state.memories.unshift(m); learnAssociation(clean, `m:${m.id}`, clean); return m;
-}
-function task(title, source='user', extra={}) {
-  const t = { id:id(), title:title.trim(), done:false, source, priority:Number(extra.priority || 50), dueAt:extra.dueAt || null, attempts:0, lastRunAt:null, createdAt:iso(), updatedAt:iso() };
-  state.tasks.unshift(t); return t;
-}
-function tokenize(s) { return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9àèéìòù]+/i).filter(x=>x.length>2); }
-function relevantMemories(text, limit=8) {
-  const q = new Set(tokenize(text));
-  return state.memories.map(m => ({m, score: tokenize(m.text).filter(x=>q.has(x)).length + (m.category==='preferenza' ? .25 : 0)})).sort((a,b)=>b.score-a.score).slice(0,limit).filter(x=>x.score>0).map(x=>x.m);
-}
-
-// ---- Associative network (neurons/synapses) -------------------------------
-// Nodes: concepts extracted from text, plus one node per consolidated memory.
-// Edges: undirected, weighted connections that strengthen on co-activation
-// (Hebbian-style "fire together, wire together") and decay over time.
-function slug(s) { return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''); }
-function concepts(text, limit=6) { return Array.from(new Set(tokenize(text))).filter(w=>w.length>3).slice(0,limit); }
-function getNode(nid, label, kind) {
-  let n = state.graph.nodes.find(x => x.id === nid);
-  if (!n) { n = { id:nid, label:String(label||nid).slice(0,80), kind, activation:0, createdAt:iso(), lastActiveAt:iso() }; state.graph.nodes.push(n); }
-  n.activation = Math.min(1, n.activation + 0.3);
-  n.lastActiveAt = iso();
-  return n;
-}
-function getEdge(a, b) {
-  if (a === b) return null;
-  const [x,y] = [a,b].sort();
-  const eid = `${x}~${y}`;
-  let e = state.graph.edges.find(x => x.id === eid);
-  if (!e) { e = { id:eid, a:x, b:y, weight:0, createdAt:iso(), lastActiveAt:iso() }; state.graph.edges.push(e); }
-  return e;
-}
-function bond(a, b, amount=0.18) {
-  const e = getEdge(a, b); if (!e) return;
-  e.weight = Math.min(1, e.weight + amount);
-  e.lastActiveAt = iso();
-}
-function learnAssociation(text, anchorId=null, anchorLabel=null) {
-  const cs = concepts(text);
-  const ids = cs.map(c => { const cid = `c:${slug(c)}`; getNode(cid, c, 'concept'); return cid; });
-  if (anchorId) { getNode(anchorId, anchorLabel || text.slice(0,60), 'memory'); ids.forEach(cid => bond(anchorId, cid, 0.22)); }
-  for (let i=0;i<ids.length;i++) for (let j=i+1;j<ids.length;j++) bond(ids[i], ids[j], 0.12);
-  if (state.graph.nodes.length > 400) state.graph.nodes = state.graph.nodes.sort((a,b)=>b.activation-a.activation).slice(0,400);
-  if (state.graph.edges.length > 900) state.graph.edges = state.graph.edges.sort((a,b)=>b.weight-a.weight).slice(0,900);
-}
-function decayGraph() {
-  const DECAY = 0.985;
-  for (const n of state.graph.nodes) n.activation = Math.max(0, n.activation * DECAY);
-  for (const e of state.graph.edges) e.weight = Math.max(0, e.weight * DECAY);
-  state.graph.edges = state.graph.edges.filter(e => e.weight > 0.02);
-  const connected = new Set(state.graph.edges.flatMap(e => [e.a, e.b]));
-  state.graph.nodes = state.graph.nodes.filter(n => n.activation > 0.01 || connected.has(n.id));
-}
+const audit = (...a) => L.audit(state, ...a);
+const memory = (...a) => L.memory(state, ...a);
+const task = (...a) => L.task(state, ...a);
+const tokenize = L.tokenize;
+const relevantMemories = (...a) => L.relevantMemories(state, ...a);
+const slug = L.slug;
+const concepts = L.concepts;
+const getNode = (...a) => L.getNode(state, ...a);
+const getEdge = (...a) => L.getEdge(state, ...a);
+const bond = (...a) => L.bond(state, ...a);
+const learnAssociation = (...a) => L.learnAssociation(state, ...a);
+const decayGraph = () => L.decayGraph(state);
+const openTasks = () => L.openTasks(state);
+const deriveTasks = () => L.deriveTasks(state);
+const localCognition = (...a) => L.localCognition(state, ...a);
 
 // ---- Local LLM adapter ----------------------------------------------------
 function clampText(s, n) { return String(s || '').slice(0, n); }
@@ -251,57 +181,12 @@ async function think(text, mode='chat') {
 }
 
 // ---- Autonomous engine ---------------------------------------------------
-function enqueue(type, payload={}, priority=50, runAt=now(), source='system') {
-  if (state.queue.length >= MAX_QUEUE) state.queue.pop();
-  const item = { id:id(), type, payload, priority, runAt, source, attempts:0, createdAt:iso() };
-  state.queue.push(item);
-  state.queue.sort((a,b) => a.runAt-b.runAt || b.priority-a.priority);
-  wakeScheduler();
-  return item;
-}
-function enqueueUnique(type, key, payload={}, priority=50, runAt=now()) {
-  const exists = state.queue.some(q => q.type === type && (q.payload?.key === key || q.payload?.memoryId === payload?.memoryId || q.payload?.taskId === payload?.taskId) && q.runAt >= now()-60000);
-  return exists ? null : enqueue(type, {...payload, key}, priority, runAt);
-}
-function nextWork() {
-  const t = now();
-  return state.queue.filter(q => q.runAt <= t).sort((a,b) => b.priority-a.priority || a.runAt-b.runAt)[0] || null;
-}
-function openTasks() {
-  return state.tasks.filter(t => !t.done).sort((a,b) => (b.priority-a.priority) || ((a.dueAt ? Date.parse(a.dueAt) : Infinity) - (b.dueAt ? Date.parse(b.dueAt) : Infinity)));
-}
-function deriveTasks() {
-  // Requeue only meaningful work; no busy-looping.
-  for (const t of openTasks().slice(0, 20)) {
-    const key = `task:${t.id}`;
-    const cooldown = t.lastRunAt ? now() - Date.parse(t.lastRunAt) : Infinity;
-    if (cooldown >= 60000) enqueueUnique('task_review', key, { taskId:t.id }, t.priority, now());
-  }
-}
-function localCognition(text) {
-  const raw=text.trim(), l=raw.toLowerCase();
-  const prefix = [/^ricorda(?:ti)? che\s+/i,/^preferisco\s+/i,/^mi piace\s+/i,/^non mi piace\s+/i];
-  const match = prefix.find(r=>r.test(raw));
-  if (match) {
-    const fact=raw.replace(match,'').trim();
-    if (fact) { const cat=/preferisco|piace/i.test(match.source)?'preferenza':'memoria'; const m=memory(fact,cat,.8); audit('memory',`Memorizzato: ${fact}`,{memoryId:m.id}); enqueueUnique('memory_review', `memory:${m.id}`, {memoryId:m.id}, 20, now()+3600000); return {text:`Memorizzato. Lo terrò presente: ${fact}`,actions:['memory']}; }
-  }
-  const add=/^(?:aggiungi|crea|metti)\s+(?:un[ae]?\s+)?attivit[aà]\s*:?[ ]*(.+)$/i.exec(raw);
-  if(add){ const t=task(add[1]); audit('task',`Creata attività: ${t.title}`,{taskId:t.id}); enqueue('task_review',{taskId:t.id},t.priority,now()); return {text:`Attività aggiunta: ${t.title}`,actions:['task']}; }
-  if(/cosa ricordi|cosa sai di me|memorie/i.test(l)){ const ms=state.memories.slice(0,15); return {text:ms.length?`Queste sono le memorie consolidate:\n${ms.map(m=>`• ${m.text}`).join('\n')}`:'Non ho ancora memorie consolidate.',actions:[]}; }
-  if(/quante attivit[aà]|attivit[aà] aperte/i.test(l)){return {text:`Hai ${openTasks().length} attività aperte.`,actions:[]};}
-  if(/stato|come stai|cosa puoi fare/i.test(l)){return {text:`Sono Pandora Core, locale. Ho ${state.memories.length} memorie, ${openTasks().length} attività aperte e autonomia ${state.autonomy?'attiva':'in pausa'}. Il ciclo autonomo è ${state.autonomy?'operativo':'sospeso'}.`,actions:[]};}
-  const rel=relevantMemories(raw);
-  if (rel.length) for (const m of rel) learnAssociation(raw, `m:${m.id}`, m.text);
-  if (/^(ciao|salve|hey|buongiorno|buonasera)\b/i.test(raw)) return {text:'Ciao! Sono qui. Dimmi cosa vuoi fare e proverò a gestirlo localmente.',actions:[]};
-  if (/\b(aiut|puoi|cosa sai fare|funzion)\b/i.test(l)) return {text:'Posso conversare, ricordare informazioni, creare e completare attività, pianificare lavori locali e mantenere una memoria persistente. Se il modello locale è disponibile posso anche interpretare richieste più complesse.',actions:[]};
-  if (/\b(perch[eé]|come mai|spieg)\b/i.test(l)) return {text:`Posso analizzare la richiesta localmente. ${rel.length ? `Ho trovato nella memoria elementi collegati: ${rel.map(m=>m.text).join('; ')}.` : 'Non ho trovato memorie direttamente pertinenti.'}`,actions:[]};
-  if (/\b(grazie|perfetto|ok|va bene)\b/i.test(l)) return {text:'Di nulla. Possiamo continuare da qui.',actions:[]};
-  if (/\b(oggi|domani|ieri|settimana|mese)\b/i.test(l)) return {text:`La richiesta riguarda un riferimento temporale. ${rel.length ? `Terrò conto anche di: ${rel.map(m=>m.text).join('; ')}.` : 'Per ora non ho abbastanza contesto locale per pianificarla in modo preciso.'}`,actions:[]};
-  let reply=rel.length ? `Ho capito la richiesta. Le informazioni che posso collegare sono: ${rel.map(m=>m.text).join('; ')}.` : `Ho ricevuto: “${raw.slice(0,240)}”.`;
-  reply += ' Il cervello locale non è disponibile in questo momento, quindi non invento una risposta: posso comunque registrare memoria, attività e lavori sicuri.';
-  return {text:reply,actions:[]};
-}
+// enqueue/enqueueUnique/nextWork wrap logic.mjs's pure versions, adding the
+// wakeScheduler() side-effect that only makes sense where a background timer
+// actually exists (this always-on process).
+function enqueue(...a) { const item = L.enqueue(state, ...a); wakeScheduler(); return item; }
+function enqueueUnique(...a) { const item = L.enqueueUnique(state, ...a); if (item) wakeScheduler(); return item; }
+function nextWork() { return L.nextWork(state); }
 
 async function executeWork(item) {
   if (item.type === 'llm_plan') {
@@ -406,18 +291,17 @@ function respond(res,body,status=200) {
   res.end(b);
 }
 async function body(req){let d=''; for await(const c of req)d+=c; return d?JSON.parse(d):{};}
+const API_KEY = process.env.PANDORA_API_KEY || '';
 async function handle(req,res){
-  if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type','Access-Control-Allow-Methods':'GET,POST,OPTIONS'});return res.end();}
+  if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type, X-Pandora-Key','Access-Control-Allow-Methods':'GET,POST,OPTIONS'});return res.end();}
   try{
     const u=new URL(req.url,`http://${req.headers.host||'localhost'}`); const p=u.pathname;
     if(req.method==='GET'&&p==='/health') return respond(res,{ok:true,name:'Pandora Core',version:'1.4.0',mode:'local-autonomous',autonomy:state.autonomy,cycleRunning,queue:state.queue.length,stats:state.autonomyStats,now:iso()});
+    // Every route except /health requires the API key once PANDORA_API_KEY is set.
+    // Locally (no key configured) it stays open, so dev on your own machine is unaffected.
+    if (API_KEY && req.headers['x-pandora-key'] !== API_KEY) return respond(res,{ok:false,error:'unauthorized'},401);
     if(req.method==='GET'&&p==='/state') return respond(res,{ok:true,state});
-    if(req.method==='GET'&&p==='/graph'){
-      const nodes=state.graph.nodes.slice().sort((a,b)=>b.activation-a.activation).slice(0,220).map(n=>({id:n.id,label:n.label,kind:n.kind,activation:Math.round(n.activation*100)/100}));
-      const nodeIds=new Set(nodes.map(n=>n.id));
-      const edges=state.graph.edges.filter(e=>nodeIds.has(e.a)&&nodeIds.has(e.b)).sort((a,b)=>b.weight-a.weight).slice(0,500).map(e=>({id:e.id,a:e.a,b:e.b,weight:Math.round(e.weight*100)/100}));
-      return respond(res,{ok:true,nodes,edges,stats:{totalNodes:state.graph.nodes.length,totalEdges:state.graph.edges.length}});
-    }
+    if(req.method==='GET'&&p==='/graph') return respond(res,{ok:true,...L.graphSnapshot(state)});
     if(req.method==='GET'&&p==='/llm/status') return respond(res,{ok:true,enabled:LLM_ENABLED,provider:'ollama-local',baseUrl:LLM_BASE_URL,selectedModel:LLM_MODEL,available:llmLast.ok,stats:llmLast});
     if(req.method==='GET'&&p==='/llm/models') return respond(res,{ok:true,provider:'ollama-local',selectedModel:LLM_MODEL,models:await listLocalModels()});
     if(req.method==='POST'&&p==='/llm/select'){const b=await body(req);const model=String(b.model||'').trim();if(!model)throw new Error('model required');const models=await listLocalModels();if(!models.some(m=>m.name===model))throw new Error('model_not_installed');LLM_MODEL=model;llmLast={...llmLast,model,ok:false,error:null};audit('system',`Modello locale selezionato: ${model}`);await save();return respond(res,{ok:true,selectedModel:model,note:'Selezione valida per il processo corrente; per renderla predefinita imposta PANDORA_LLM_MODEL.'});}
