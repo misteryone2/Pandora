@@ -137,8 +137,19 @@ export function localCognition(state, text) {
   }
   const add=/^(?:aggiungi|crea|metti)\s+(?:un[ae]?\s+)?attivit[aà]\s*:?[ ]*(.+)$/i.exec(raw);
   if(add){ const t=task(state, add[1]); audit(state, 'task',`Creata attività: ${t.title}`,{taskId:t.id}); enqueue(state, 'task_review',{taskId:t.id},t.priority,now()); return {text:`Attività aggiunta: ${t.title}`,actions:['task']}; }
+  const nameMatch=/^(?:mi chiamo|il mio nome è|mi presento[,]?\s+(?:io\s+)?sono)\s+(.+?)[.!]?$/i.exec(raw);
+  if(nameMatch){
+    const name=nameMatch[1].trim();
+    const existing=state.memories.find(m=>m.category==='identità');
+    let m;
+    if(existing){ existing.text=`Il nome dell'utente è ${name}`; existing.updatedAt=iso(); existing.confidence=Math.min(1,existing.confidence+.1); learnAssociation(state, existing.text, `m:${existing.id}`, existing.text); m=existing; }
+    else { m=memory(state, `Il nome dell'utente è ${name}`, 'identità', .9); }
+    audit(state, 'memory', `Nome registrato: ${name}`, {memoryId:m.id});
+    return {text:`Piacere, ${name}! Lo ricorderò.`, actions:['memory']};
+  }
   if(/cosa ricordi|cosa sai di me|memorie/i.test(l)){ const ms=state.memories.slice(0,15); return {text:ms.length?`Queste sono le memorie consolidate:\n${ms.map(m=>`• ${m.text}`).join('\n')}`:'Non ho ancora memorie consolidate.',actions:[]}; }
   if(/quante attivit[aà]|attivit[aà] aperte/i.test(l)){return {text:`Hai ${openTasks(state).length} attività aperte.`,actions:[]};}
+  if(/come mi chiamo|chi sono( io)?\??$|qual[eè] il mio nome/i.test(l)){ const idm=state.memories.find(m=>m.category==='identità'); return {text: idm ? idm.text.replace(/^Il nome dell'utente è /,'Ti chiami ') + '.' : 'Non me l\'hai ancora detto — dimmi "mi chiamo..." e lo ricorderò.', actions:[]}; }
   if(/stato|come stai|cosa puoi fare/i.test(l)){return {text:`Sono Pandora Core. Ho ${state.memories.length} memorie, ${openTasks(state).length} attività aperte e autonomia ${state.autonomy?'attiva':'in pausa'}.`,actions:[]};}
   const rel=relevantMemories(state, raw);
   if (rel.length) for (const m of rel) learnAssociation(state, raw, `m:${m.id}`, m.text);
@@ -148,7 +159,7 @@ export function localCognition(state, text) {
   if (/\b(grazie|perfetto|ok|va bene)\b/i.test(l)) return {text:'Di nulla. Possiamo continuare da qui.',actions:[]};
   if (/\b(oggi|domani|ieri|settimana|mese)\b/i.test(l)) return {text:`La richiesta riguarda un riferimento temporale. ${rel.length ? `Terrò conto anche di: ${rel.map(m=>m.text).join('; ')}.` : 'Per ora non ho abbastanza contesto locale per pianificarla in modo preciso.'}`,actions:[]};
   let reply=rel.length ? `Ho capito la richiesta. Le informazioni che posso collegare sono: ${rel.map(m=>m.text).join('; ')}.` : `Ho ricevuto: “${raw.slice(0,240)}”.`;
-  reply += ' Il cervello locale non è disponibile in questo momento, quindi non invento una risposta: posso comunque registrare memoria, attività e lavori sicuri.';
+  reply += ' Sto rispondendo con il motore essenziale, senza un modello linguistico a interpretarlo liberamente: posso comunque ricordare fatti ("ricorda che..."), gestire attività e rispondere a domande dirette su ciò che so.';
   return {text:reply,actions:[]};
 }
 
