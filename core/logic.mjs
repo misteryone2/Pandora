@@ -137,6 +137,17 @@ export function localCognition(state, text) {
   }
   const add=/^(?:aggiungi|crea|metti)\s+(?:un[ae]?\s+)?attivit[aà]\s*:?[ ]*(.+)$/i.exec(raw);
   if(add){ const t=task(state, add[1]); audit(state, 'task',`Creata attività: ${t.title}`,{taskId:t.id}); enqueue(state, 'task_review',{taskId:t.id},t.priority,now()); return {text:`Attività aggiunta: ${t.title}`,actions:['task']}; }
+  const findOpenTask=(q)=>{ const qtok=new Set(tokenize(q)); if(!qtok.size)return null; const scored=openTasks(state).map(t=>({t,score:tokenize(t.title).filter(x=>qtok.has(x)).length})).sort((a,b)=>b.score-a.score); return scored[0]&&scored[0].score>0 ? scored[0].t : null; };
+  const done=/^(?:ho fatto|fatto|completa(?:ta)?|segna come (?:fatta|completata))\s*:?[ ]*(.+)$/i.exec(raw);
+  if(done){ const t=findOpenTask(done[1]); if(t){ t.done=true; t.updatedAt=iso(); audit(state,'task',`Completata attività: ${t.title}`,{taskId:t.id}); return {text:`Segnata come completata: ${t.title}`,actions:['task']}; } return {text:`Non trovo un'attività aperta che corrisponda a "${done[1].trim()}".`,actions:[]}; }
+  const del=/^(?:cancella|elimina|rimuovi)\s+(?:l'?)?attivit[aà]\s*:?[ ]*(.+)$/i.exec(raw);
+  if(del){ const t=findOpenTask(del[1]); if(t){ state.tasks=state.tasks.filter(x=>x.id!==t.id); audit(state,'task',`Eliminata attività: ${t.title}`,{taskId:t.id}); return {text:`Eliminata: ${t.title}`,actions:['task']}; } return {text:`Non trovo un'attività aperta che corrisponda a "${del[1].trim()}".`,actions:[]}; }
+  if(/^(?:elenca|mostrami|quali sono le|che)\s+(?:le\s+)?attivit[aà]/i.test(raw)){ const ts=openTasks(state); return {text: ts.length ? `Attività aperte:\n${ts.slice(0,15).map(t=>`• ${t.title}`).join('\n')}` : 'Nessuna attività aperta al momento.', actions:[]}; }
+  const forget=/^(?:dimentica|cancella la memoria(?: di)?)\s*:?[ ]*(.+)$/i.exec(raw);
+  if(forget){ const qtok=new Set(tokenize(forget[1])); const scored=state.memories.map(m=>({m,score:tokenize(m.text).filter(x=>qtok.has(x)).length})).sort((a,b)=>b.score-a.score); const best=scored[0]; if(best&&best.score>0){ state.memories=state.memories.filter(x=>x.id!==best.m.id); audit(state,'memory',`Dimenticato: ${best.m.text}`,{memoryId:best.m.id}); return {text:`Fatto, ho dimenticato: ${best.m.text}`,actions:['memory']}; } return {text:`Non trovo memorie che corrispondano a "${forget[1].trim()}".`,actions:[]}; }
+  const calc=/^(?:quanto fa|calcola)\s*:?[ ]*([-\d\s+*/().]+)$/i.exec(raw);
+  if(calc){ const expr=calc[1].trim(); if(/^[-\d\s+*/().]+$/.test(expr)){ try{ const value=Function(`"use strict";return (${expr});`)(); if(Number.isFinite(value)) return {text:`${expr.trim()} = ${value}`,actions:[]}; }catch{} } return {text:'Non sono riuscita a calcolarlo — controlla che sia un\'espressione numerica valida.',actions:[]}; }
+  if(/che ore sono|che orario|che giorno è|che data è/i.test(l)){ const fmt=new Intl.DateTimeFormat('it-IT',{dateStyle:'full',timeStyle:'short',timeZone:'Europe/Rome'}); return {text:`Ora sono le ${fmt.format(new Date())} (orario italiano).`,actions:[]}; }
   const nameMatch=/^(?:mi chiamo|il mio nome è|mi presento[,]?\s+(?:io\s+)?sono)\s+(.+?)[.!]?$/i.exec(raw);
   if(nameMatch){
     const name=nameMatch[1].trim();
